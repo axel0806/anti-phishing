@@ -78,20 +78,24 @@ create table feedback (
   },
 ];
 
-/** Applies pending migrations inside a transaction each; safe to call on every start. */
+/** Arbitrary constant: every process that migrates takes the same lock, so API and worker can start together. */
+const MIGRATION_LOCK = 727274;
+
+/** Applies pending migrations in one transaction under an advisory lock; safe to call from several processes on every start. */
 export async function migrate(db: Db): Promise<string[]> {
-  await db.execute(sql`create table if not exists schema_migrations (id text primary key, applied_at timestamptz not null default now())`);
-  const res = (await db.execute(sql`select id from schema_migrations`)) as unknown as { rows: { id: string }[] };
-  const done = new Set(res.rows.map((r) => r.id));
-  const applied: string[] = [];
-  for (const m of MIGRATIONS) {
-    if (done.has(m.id)) continue;
-    await db.transaction(async (tx) => {
-      // One statement per call: prepared queries cannot hold several. Migrations must not contain ';' inside literals.
-      for (const stmt of m.sql.split(";").map((s) => s.trim()).filter(Boolean)) await tx.execute(sql.raw(stmt));
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${MIGRATION_LOCK})`);
+    await tx.execute(sql`create table if not exists schema_migrations (id text primary key, applied_at timestamptz not null default now())`);
+    const res = (await tx.execute(sql`select id from schema_migrations`)) as unknown as { rows: { id: string }[] };
+    const done = new Set(res.rows.map((r) => r.id));
+    const applied: string[] = [];
+    for (const m of MIGRATIONS) {
+      if (done.has(m.id)) continue;
+      // One statement per call: prepared queries cannot hold several. Migrations must not contain ";" inside literals.
+      for (const stmt of m.sql.split(";").map((x) => x.trim()).filter(Boolean)) await tx.execute(sql.raw(stmt));
       await tx.execute(sql`insert into schema_migrations (id) values (${m.id})`);
-    });
-    applied.push(m.id);
-  }
-  return applied;
+      applied.push(m.id);
+    }
+    return applied;
+  });
 }

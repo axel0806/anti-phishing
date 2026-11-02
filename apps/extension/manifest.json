@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Anti-Phishing (dev)",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shows why Gmail messages were flagged as phishing or suspicious.",
   "host_permissions": [
     "https://mail.google.com/*",
@@ -20,5 +20,20 @@
   ],
   "background": {
     "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "storage": {
+    "managed_schema": "managed_schema.json"
   }
 }

@@ -1,0 +1,10 @@
+node_modules
+.git
+.env
+.env.*
+.tokens.json
+.verdicts.json
+.data
+apps/extension/dist*
+corpus/legit
+corpus/phishing

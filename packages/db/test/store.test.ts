@@ -100,3 +100,15 @@ describe("connect with a data directory", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
+
+describe("concurrent migration", () => {
+  it("two simultaneous migrate() calls on a fresh database both succeed and apply once", async () => {
+    const { PGlite } = await import("@electric-sql/pglite");
+    const { drizzle } = await import("drizzle-orm/pglite");
+    const lite = new PGlite();
+    const db = drizzle(lite) as unknown as Parameters<typeof migrate>[0];
+    const [a, b] = await Promise.all([migrate(db), migrate(db)]);
+    expect([...a, ...b]).toEqual(["0001_init"]);
+    await lite.close();
+  });
+});
