@@ -1,7 +1,7 @@
 import { bannerModel, type BannerModel, type VerdictDto } from "./banner.ts";
 import { BANNER_ATTR, MESSAGE_SELECTOR, messageIdOf } from "./selectors.ts";
 
-const SERVER = "http://127.0.0.1:8787";
+const api = (globalThis as any).browser ?? (globalThis as any).chrome;
 const COLORS = { phishing: { bg: "#fde8e8", border: "#c81e1e" }, suspicious: { bg: "#fef6e0", border: "#b7791f" } } as const;
 
 function render(m: BannerModel): HTMLElement {
@@ -29,9 +29,8 @@ async function annotate(el: Element): Promise<void> {
   if (!id || el.querySelector(`[${BANNER_ATTR}]`) || inFlight.has(id)) return;
   inFlight.add(id);
   try {
-    const res = await fetch(`${SERVER}/v1/messages/${encodeURIComponent(id)}/verdict`);
-    if (!res.ok) return;
-    const model = bannerModel((await res.json()) as VerdictDto);
+    const dto = (await api.runtime.sendMessage({ type: "verdict", id })) as VerdictDto | null;
+    const model = dto ? bannerModel(dto) : null;
     if (model && !el.querySelector(`[${BANNER_ATTR}]`)) el.prepend(render(model));
   } catch {
     // Server not running: fail quietly, never break Gmail.

@@ -1,6 +1,11 @@
 import { build } from "esbuild";
 import { copyFileSync, mkdirSync } from "node:fs";
-mkdirSync("apps/extension/dist", { recursive: true });
-await build({ entryPoints: ["apps/extension/src/content.ts"], bundle: true, outfile: "apps/extension/dist/content.js", target: "chrome120", format: "iife" });
-copyFileSync("apps/extension/manifest.json", "apps/extension/dist/manifest.json");
-console.log("Built apps/extension/dist - load it via chrome://extensions > Load unpacked");
+for (const [dir, manifest] of [["dist", "manifest.json"], ["dist-firefox", "manifest.firefox.json"]]) {
+  mkdirSync("apps/extension/" + dir, { recursive: true });
+  await build({
+    entryPoints: { content: "apps/extension/src/content.ts", background: "apps/extension/src/background.ts" },
+    bundle: true, outdir: "apps/extension/" + dir, target: "es2022", format: "iife",
+  });
+  copyFileSync("apps/extension/" + manifest, "apps/extension/" + dir + "/manifest.json");
+}
+console.log("Built apps/extension/dist (Chrome) and apps/extension/dist-firefox (Firefox)");
