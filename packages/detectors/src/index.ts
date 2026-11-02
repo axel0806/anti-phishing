@@ -230,7 +230,7 @@ export async function runDetectors(email: ParsedEmail, ctx: DetectorContext): Pr
 
 const matches = (e: ParsedEmail, l: ListEntry) =>
   l.matchType === "address"
-    ? e.from.address === l.value.toLowerCase()
+    ? e.from.address.toLowerCase() === l.value.toLowerCase()
     : registrableDomain(e.from.address) === registrableDomain(l.value);
 
 /** Allowlist first (Safe), then blocklist (Phishing); null when the rule engine should run. */

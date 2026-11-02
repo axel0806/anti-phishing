@@ -22,9 +22,11 @@ describe("pipeline", () => {
     expect((await scanRaw(eml("legit/lunch.eml"), "b", DEFAULT_SETTINGS)).verdict).toBe("safe");
     expect((await scanRaw(eml("legit/newsletter.eml"), "c", DEFAULT_SETTINGS)).verdict).toBe("safe");
   });
-  it("allowlist short-circuits to safe and blocklist to phishing", async () => {
-    const allow = { ...DEFAULT_SETTINGS, allowlist: [{ matchType: "domain" as const, value: "paypa1-secure.net" }] };
-    expect((await scanRaw(eml("phishing/paypal-spoof.eml"), "a", allow)).verdict).toBe("safe");
+  it("allowlist short-circuits authenticated mail to safe, is ignored for a spoof that fails DMARC, and blocklist wins to phishing", async () => {
+    const allowAlice = { ...DEFAULT_SETTINGS, allowlist: [{ matchType: "domain" as const, value: "company.example" }] };
+    expect((await scanRaw(eml("legit/lunch.eml"), "b", allowAlice)).verdict).toBe("safe");
+    const allowSpoof = { ...DEFAULT_SETTINGS, allowlist: [{ matchType: "domain" as const, value: "paypa1-secure.net" }] };
+    expect((await scanRaw(eml("phishing/paypal-spoof.eml"), "a", allowSpoof)).verdict).toBe("phishing");
     const block = { ...DEFAULT_SETTINGS, blocklist: [{ matchType: "address" as const, value: "alice@company.example" }] };
     expect((await scanRaw(eml("legit/lunch.eml"), "b", block)).verdict).toBe("phishing");
   });

@@ -12,8 +12,13 @@ export const offlineLookups: DetectorContext["lookups"] = {
 
 /** List check -> rule engine -> score. (AI stage arrives in Phase 3.) */
 export async function scanParsed(email: ParsedEmail, settings: Settings, ctx: ScanContext = { lookups: offlineLookups }): Promise<Verdict> {
-  const listed = checkLists(email, settings);
-  if (listed) return { score: listed === "safe" ? 0 : 100, verdict: listed, flags: [], aiUsed: false, settingsVersion: 0 };
+  let listed = checkLists(email, settings);
+  // A From address is trivially spoofed: the allowlist only applies when DMARC passed for it.
+  if (listed === "safe" && email.auth.dmarc !== "pass") listed = null;
+  if (listed) {
+    const reason = listed === "safe" ? "Sender is on your allowlist" : "Sender is on your blocklist";
+    return { score: listed === "safe" ? 0 : 100, verdict: listed, flags: [], aiUsed: false, settingsVersion: 0, reason };
+  }
   const flags = await runDetectors(email, { ...ctx, settings });
   return score(flags, settings);
 }

@@ -19,3 +19,10 @@ describe("bannerModel", () => {
   });
   it("notes shadow mode", () => expect(bannerModel(dto("suspicious", true))!.note).toMatch(/not moved/));
 });
+
+describe("bannerModel list reasons", () => {
+  it("falls back to the verdict reason when there are no flags", () => {
+    const m = bannerModel({ action: "none", shadow: false, verdict: { score: 100, verdict: "phishing", flags: [], reason: "Sender is on your blocklist" } })!;
+    expect(m.reasons).toEqual(["Sender is on your blocklist"]);
+  });
+});

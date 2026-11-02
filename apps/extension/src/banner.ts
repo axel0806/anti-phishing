@@ -1,5 +1,5 @@
 export interface VerdictDto {
-  verdict: { score: number; verdict: "safe" | "suspicious" | "phishing"; flags: { id: string; weight: number; evidence: string }[] };
+  verdict: { score: number; verdict: "safe" | "suspicious" | "phishing"; flags: { id: string; weight: number; evidence: string }[]; reason?: string };
   action: string;
   shadow: boolean;
 }
@@ -20,6 +20,7 @@ export function bannerModel(dto: VerdictDto): BannerModel | null {
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 3)
     .map((f) => f.evidence);
+  if (reasons.length === 0 && v.reason) reasons.push(v.reason);
   return {
     level: v.verdict,
     title: `${v.verdict === "phishing" ? "Likely phishing" : "Suspicious email"} (risk score ${v.score}/100)`,

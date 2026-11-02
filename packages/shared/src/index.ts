@@ -82,6 +82,8 @@ export const DEFAULT_SETTINGS: Settings = {
 export interface Verdict {
   score: number; verdict: "safe" | "suspicious" | "phishing";
   flags: Flag[]; aiUsed: boolean; settingsVersion: number;
+  /** Set when no flags explain the verdict (list hits). */
+  reason?: string;
 }
 
 export function makeFlag(id: FlagId, evidence: string, settings?: Settings): Flag | null {
