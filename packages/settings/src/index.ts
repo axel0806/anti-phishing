@@ -20,10 +20,20 @@ export interface OrgPolicy { values: SettingsOverrides; locked: string[] }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/** True if any object key, at any depth, could reach Object.prototype when assigned. JSON.parse keeps `__proto__` as an ordinary own key. */
+export function hasDangerousKey(v: unknown): boolean {
+  if (Array.isArray(v)) return v.some(hasDangerousKey);
+  if (!isObj(v)) return false;
+  return Object.keys(v).some((k) => DANGEROUS_KEYS.has(k) || hasDangerousKey(v[k]));
+}
+
 function deepMerge(base: Record<string, unknown>, over: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...base };
   for (const [k, v] of Object.entries(over)) {
-    out[k] = isObj(v) && isObj(out[k]) ? deepMerge(out[k] as Record<string, unknown>, v) : isObj(v) ? deepMerge({}, v) : v;
+    if (DANGEROUS_KEYS.has(k)) continue; // never write prototype-reaching keys, even from stored data
+    out[k] = isObj(v) && Object.hasOwn(out, k) && isObj(out[k]) ? deepMerge(out[k] as Record<string, unknown>, v) : isObj(v) ? deepMerge({}, v) : v;
   }
   return out;
 }
@@ -46,6 +56,7 @@ export type PatchResult =
 /** JSON Merge Patch (RFC 7386) onto stored user overrides: null deletes a key, objects merge, everything else replaces. */
 export function applyPatch(current: SettingsOverrides, patch: unknown, locked: string[]): PatchResult {
   if (!isObj(patch)) return { ok: false, error: "validation", message: "Patch must be a JSON object", fields: [] };
+  if (hasDangerousKey(patch)) return { ok: false, error: "validation", message: "Patch contains a forbidden key", fields: [] };
   const touchedLocked = Object.keys(patch).filter((k) => locked.includes(k));
   if (touchedLocked.length) return { ok: false, error: "locked_field", fields: touchedLocked };
 
@@ -54,7 +65,7 @@ export function applyPatch(current: SettingsOverrides, patch: unknown, locked: s
     for (const [k, v] of Object.entries(p)) {
       if (v === null) delete target[k];
       else if (isObj(v)) {
-        const child = isObj(target[k]) ? (target[k] as Record<string, unknown>) : {};
+        const child = Object.hasOwn(target, k) && isObj(target[k]) ? (target[k] as Record<string, unknown>) : {};
         target[k] = child;
         apply(child, v);
       } else target[k] = v;

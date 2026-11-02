@@ -46,3 +46,22 @@ describe("applyPatch (JSON Merge Patch on user overrides)", () => {
     expect(applyPatch({}, { allowlist: [{ matchType: "domain", value: "a.com" }] }, [])).toMatchObject({ ok: false, error: "validation" });
   });
 });
+
+describe("prototype pollution", () => {
+  const evil = JSON.parse('{"__proto__":{"polluted":"yes"}}');
+  it("applyPatch rejects __proto__/constructor/prototype keys at any depth without touching Object.prototype", () => {
+    expect(applyPatch({}, evil, [])).toMatchObject({ ok: false, error: "validation" });
+    expect(applyPatch({}, JSON.parse('{"flags":{"constructor":{"prototype":{"x":1}}}}'), [])).toMatchObject({ ok: false, error: "validation" });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+  it("a __proto__ key cannot dodge the locked-field check", () => {
+    const r = applyPatch({}, JSON.parse('{"__proto__":{"sensitivity":"relaxed"}}'), ["sensitivity"]);
+    expect(r.ok).toBe(false);
+    expect(({} as Record<string, unknown>).sensitivity).toBeUndefined();
+  });
+  it("resolveSettings ignores dangerous keys stored in the database", () => {
+    resolveSettings(DEFAULT_SETTINGS, { values: JSON.parse('{"__proto__":{"polluted2":"yes"}}'), locked: [] }, JSON.parse('{"constructor":{"prototype":{"polluted3":"yes"}}}'));
+    expect(({} as Record<string, unknown>).polluted2).toBeUndefined();
+    expect(({} as Record<string, unknown>).polluted3).toBeUndefined();
+  });
+});

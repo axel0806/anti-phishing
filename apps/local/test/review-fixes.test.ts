@@ -15,7 +15,7 @@ const eml = (p: string) => readFileSync(new URL("../../../corpus/" + p, import.m
 const provider = (log: string[], labels: string[] = []): MailProvider => ({
   fetchRaw: async () => eml("phishing/paypal-spoof.eml"),
   move: async (id, f) => { log.push(`move ${id} ${f}`); },
-  addLabel: async () => {}, ensureFolder: async (n) => n,
+  addLabel: async () => {}, unmove: async () => {}, ensureFolder: async (n) => n,
   listRecentInbox: async () => ["p1"], getLabelNames: async () => labels, watch: async () => {},
 });
 

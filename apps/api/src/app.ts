@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
-import { applyPatch, SettingsOverridesSchema } from "@ap/settings";
+import { applyPatch, hasDangerousKey, SettingsOverridesSchema } from "@ap/settings";
 import { ListEntrySchema } from "@ap/shared";
 import type { Store, User } from "@ap/db";
 import { signToken, verifyToken } from "./auth.ts";
@@ -41,7 +41,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
   // RFC 7386 merge patches arrive as application/merge-patch+json; treat them as JSON.
   app.addContentTypeParser("application/merge-patch+json", { parseAs: "string" }, (_req, body, done) => {
-    try { done(null, JSON.parse(body as string)); } catch (e) { done(e as Error); }
+    try {
+      const parsed: unknown = JSON.parse(body as string);
+      if (hasDangerousKey(parsed)) return done(Object.assign(new Error("Forbidden key in body"), { statusCode: 400 }));
+      done(null, parsed);
+    } catch (e) { done(e as Error); }
   });
   app.setErrorHandler((err: unknown, _req, reply) => {
     const status = (err as { statusCode?: number }).statusCode;
@@ -140,12 +144,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const body = FeedbackBody.safeParse(req.body);
       if (!body.success) return fail(reply, "validation", "label must be not_phishing or phishing");
       const u = req.user!;
-      const s = await store.addFeedback(u.id, req.params.id, body.data.label);
-      if (!s) return fail(reply, "not_scanned", "Message not scanned yet");
+      const fb = await service.applyFeedback(u, req.params.id, body.data.label);
+      if (!fb) return fail(reply, "not_scanned", "Message not scanned yet");
+      const s = fb.scan;
       if (body.data.updateList && s.sender) {
         await store.addEntry({ kind: "user", id: u.id }, body.data.label === "phishing" ? "block" : "allow", { matchType: "address", value: s.sender }, u.id);
       }
-      return { ...s.verdict, pinned: s.pinned };
+      return { ...s.verdict, pinned: s.pinned, mailAction: fb.mailAction };
     });
 
     priv.get<{ Querystring: { days?: string } }>("/v1/me/stats", async (req) => {

@@ -1,6 +1,8 @@
 export interface MailProvider {
   fetchRaw(messageId: string): Promise<Buffer>;
   move(messageId: string, folder: string): Promise<void>;
+  /** Undo a move: remove the folder label and return the message to the inbox. Never deletes. */
+  unmove(messageId: string, folder: string): Promise<void>;
   addLabel(messageId: string, label: string): Promise<void>;
   ensureFolder(name: string): Promise<string>;
   listRecentInbox(maxResults?: number): Promise<string[]>;
@@ -88,6 +90,13 @@ export class GmailProvider implements MailProvider {
   /** "Move" = apply the folder label and remove INBOX. The message is never deleted. */
   async move(messageId: string, folder: string): Promise<void> {
     await this.modify(messageId, folder, true);
+  }
+
+  async unmove(messageId: string, folder: string): Promise<void> {
+    if (this.labelIds.size === 0) await this.loadLabels();
+    const id = this.labelIds.get(folder.toLowerCase());
+    if (!id) return; // the folder never existed, so there is nothing to undo
+    await this.api(`/messages/${encodeURIComponent(messageId)}/modify`, { method: "POST", body: { addLabelIds: ["INBOX"], removeLabelIds: [id] } });
   }
 
   /** Newest-first inbox message ids, following pages until `maxResults` ids are collected. */

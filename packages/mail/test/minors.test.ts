@@ -40,3 +40,22 @@ describe("gmail minors", () => {
     expect(creates).toBe(1);
   });
 });
+
+describe("unmove", () => {
+  it("removes the folder label and puts the message back in the inbox, never deleting", async () => {
+    const bodies: unknown[] = [];
+    const f: FetchLike = async (url, init) => {
+      if (url.endsWith("/labels")) return ok({ labels: [{ id: "L7", name: "Phishing" }] });
+      if (url.endsWith("/modify")) bodies.push(JSON.parse(init!.body!));
+      return ok({});
+    };
+    await new GmailProvider(async () => "t", f).unmove("m1", "Phishing");
+    expect(bodies).toEqual([{ addLabelIds: ["INBOX"], removeLabelIds: ["L7"] }]);
+  });
+  it("is a no-op when the folder label does not exist", async () => {
+    const calls: string[] = [];
+    const f: FetchLike = async (url, init) => { calls.push((init?.method ?? "GET") + " " + url); return ok({ labels: [] }); };
+    await new GmailProvider(async () => "t", f).unmove("m1", "Phishing");
+    expect(calls.some((c) => c.includes("/modify") || c.startsWith("POST"))).toBe(false);
+  });
+});

@@ -27,7 +27,8 @@
   "optional_host_permissions": [
     "https://*/*",
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "http://[::1]/*"
   ],
   "options_ui": {
     "page": "options.html",
@@ -35,5 +36,8 @@
   },
   "storage": {
     "managed_schema": "managed_schema.json"
+  },
+  "action": {
+    "default_title": "Anti-Phishing"
   }
 }

@@ -12,7 +12,7 @@ x-app: &app
     postgres:
       condition: service_healthy
   environment: &env
-    DATABASE_URL: postgres://phish:${POSTGRES_PASSWORD:-phish-dev-only}@postgres:5432/phish
+    DATABASE_URL: postgres://phish:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/phish
     SERVER_SECRET: ${SERVER_SECRET:?set SERVER_SECRET in .env (32+ characters)}
     TOKEN_KEY: ${TOKEN_KEY:?set TOKEN_KEY in .env (64 hex characters)}
     GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -25,7 +25,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: phish
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-phish-dev-only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: phish
     volumes:
       - pgdata:/var/lib/postgresql/data

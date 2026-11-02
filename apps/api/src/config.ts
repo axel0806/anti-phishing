@@ -10,6 +10,7 @@ export interface Config {
   pollSeconds: number;
   google: { clientId: string; clientSecret: string } | null;
   dataDir: string;
+  retentionDays: number;
 }
 
 type Env = Record<string, string | undefined>;
@@ -27,12 +28,14 @@ export function loadConfig(env: Env): Config {
   if (!["api", "worker", "all"].includes(role)) problems.push("ROLE must be api, worker or all");
   const pollSeconds = env.POLL_SECONDS === undefined ? 60 : Number(env.POLL_SECONDS);
   if (!Number.isFinite(pollSeconds) || pollSeconds < 5) problems.push("POLL_SECONDS must be at least 5");
+  const retentionDays = env.RETENTION_DAYS === undefined ? 90 : Number(env.RETENTION_DAYS);
+  if (!Number.isInteger(retentionDays) || retentionDays < 1) problems.push("RETENTION_DAYS must be a whole number of at least 1");
   if (problems.length) throw new Error("Invalid configuration:\n- " + problems.join("\n- "));
 
   const clientId = env.GOOGLE_CLIENT_ID ?? env.CLIENT_ID;
   const clientSecret = env.GOOGLE_CLIENT_SECRET ?? env.CLIENT_SECRET;
   return {
-    port, role, pollSeconds, secret, tokenKey,
+    port, role, pollSeconds, secret, tokenKey, retentionDays,
     databaseUrl: env.DATABASE_URL || undefined,
     // Derived, not secret: lets clients tell servers apart and scopes session tokens to this one.
     serverId: env.SERVER_ID || createHash("sha256").update("server-id:" + secret).digest("hex").slice(0, 16),

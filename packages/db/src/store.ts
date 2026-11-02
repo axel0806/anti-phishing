@@ -6,7 +6,7 @@ import { feedback, listEntries, orgs, scanFlags, scans, senderHistory, users } f
 
 export type Role = "user" | "viewer" | "analyst" | "admin";
 export interface User { id: string; orgId: string | null; email: string; provider: string; role: Role; overrides: SettingsOverrides; encryptedTokens: string | null }
-export interface StoredScan { id: string; verdict: Verdict; pinned: boolean; sender: string | null; createdAt: Date }
+export interface StoredScan { id: string; verdict: Verdict; pinned: boolean; /** null until a mailbox action was applied or ruled out */ action: string | null; sender: string | null; createdAt: Date }
 export interface Lists { allow: ListEntry[]; block: ListEntry[] }
 export interface ScanMeta { latencyMs: number; sender?: string; subjectHash?: string }
 
@@ -105,45 +105,59 @@ export class Store {
       source: f.flagId === "ai_intent" ? "ai" : "rule",
     }));
     return {
-      id: s.id, pinned: s.pinned, sender: s.sender, createdAt: s.createdAt,
+      id: s.id, pinned: s.pinned, action: s.action, sender: s.sender, createdAt: s.createdAt,
       verdict: { score: s.score, verdict: s.verdict as Verdict["verdict"], flags, aiUsed: s.aiUsed, settingsVersion: s.settingsVersion, reason: s.reason ?? undefined },
     };
   }
 
-  /** Insert or replace a scan. A pinned (manually judged) scan is returned untouched: manual verdicts are never re-scored. */
+  /**
+   * Insert or replace a scan, safe under concurrency: the row is locked while it is read and rewritten, and a racing insert
+   * falls through to the update path. A pinned (manually judged) scan is returned untouched: manual verdicts are never re-scored.
+   * A rewrite clears `action`, so the new verdict can be acted on.
+   */
   async saveScan(userId: string, providerMessageId: string, v: Verdict, meta: ScanMeta): Promise<StoredScan> {
+    const values = {
+      userId, providerMessageId, score: v.score, verdict: v.verdict, aiUsed: v.aiUsed, latencyMs: Math.round(meta.latencyMs),
+      settingsVersion: v.settingsVersion, reason: v.reason ?? null, sender: meta.sender ?? null, subjectHash: meta.subjectHash ?? null, action: null,
+    };
     await this.db.transaction(async (tx) => {
-      const [ex] = await tx.select().from(scans).where(and(eq(scans.userId, userId), eq(scans.providerMessageId, providerMessageId)));
-      if (ex?.pinned) return;
-      const values = {
-        userId, providerMessageId, score: v.score, verdict: v.verdict, aiUsed: v.aiUsed, latencyMs: Math.round(meta.latencyMs),
-        settingsVersion: v.settingsVersion, reason: v.reason ?? null, sender: meta.sender ?? null, subjectHash: meta.subjectHash ?? null,
-      };
+      const lock = () => tx.select().from(scans).where(and(eq(scans.userId, userId), eq(scans.providerMessageId, providerMessageId))).for("update");
+      let [ex] = await lock();
       let id: string;
-      if (ex) {
-        id = ex.id;
-        await tx.update(scans).set({ ...values, createdAt: new Date() }).where(eq(scans.id, id));
-        await tx.delete(scanFlags).where(eq(scanFlags.scanId, id));
-      } else {
-        [{ id }] = (await tx.insert(scans).values(values).returning({ id: scans.id })) as [{ id: string }];
-      }
-      if (v.flags.length) {
-        await tx.insert(scanFlags).values(v.flags.map((f) => ({ scanId: id, flagId: f.id, weightApplied: Math.round(f.weight), evidence: f.evidence })));
-      }
+      if (!ex) {
+        const ins = await tx.insert(scans).values(values).onConflictDoNothing().returning({ id: scans.id });
+        if (ins[0]) id = ins[0].id;
+        else { [ex] = await lock(); if (!ex) throw new Error("scan vanished during save"); id = ex.id; }
+        if (ins[0]) { await this.writeFlags(tx, id, v); return; }
+      } else id = ex.id;
+      if (ex!.pinned) return;
+      await tx.update(scans).set({ ...values, createdAt: new Date() }).where(eq(scans.id, id));
+      await tx.delete(scanFlags).where(eq(scanFlags.scanId, id));
+      await this.writeFlags(tx, id, v);
     });
     return (await this.getScan(userId, providerMessageId))!;
   }
 
-  /** Records the user's judgement and pins the scan so it is never re-scored. Null if the message was never scanned. */
+  private async writeFlags(tx: Pick<Db, "insert">, scanId: string, v: Verdict): Promise<void> {
+    if (v.flags.length) await tx.insert(scanFlags).values(v.flags.map((f) => ({ scanId, flagId: f.id, weightApplied: Math.round(f.weight), evidence: f.evidence })));
+  }
+
+  /** Records the mailbox action that was applied (or ruled out) for a scan, so it is never applied twice. */
+  async setScanAction(userId: string, providerMessageId: string, action: string): Promise<void> {
+    await this.db.update(scans).set({ action }).where(and(eq(scans.userId, userId), eq(scans.providerMessageId, providerMessageId)));
+  }
+
+  /** Records the user's judgement and pins the scan so it is never re-scored. The row is locked so a concurrent rescan cannot overwrite it. Null if never scanned. */
   async addFeedback(userId: string, providerMessageId: string, label: "not_phishing" | "phishing"): Promise<StoredScan | null> {
-    const s = await this.getScan(userId, providerMessageId);
-    if (!s) return null;
-    await this.db.transaction(async (tx) => {
-      await tx.update(scans).set({ pinned: true, verdict: label === "phishing" ? "phishing" : "safe" }).where(eq(scans.id, s.id));
+    const found = await this.db.transaction(async (tx) => {
+      const [s] = await tx.select().from(scans).where(and(eq(scans.userId, userId), eq(scans.providerMessageId, providerMessageId))).for("update");
+      if (!s) return false;
+      await tx.update(scans).set({ pinned: true, verdict: label === "phishing" ? "phishing" : "safe", action: "manual" }).where(eq(scans.id, s.id));
       await tx.insert(feedback).values({ scanId: s.id, userId, label })
         .onConflictDoUpdate({ target: [feedback.scanId, feedback.userId], set: { label, createdAt: new Date() } });
+      return true;
     });
-    return this.getScan(userId, providerMessageId);
+    return found ? this.getScan(userId, providerMessageId) : null;
   }
 
   async statsFor(userId: string, days: number): Promise<{ scanned: number; safe: number; suspicious: number; phishing: number; falsePositives: number }> {

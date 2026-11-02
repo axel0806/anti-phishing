@@ -76,6 +76,7 @@ create table feedback (
   primary key (scan_id, user_id)
 );`,
   },
+  { id: "0002_scan_action", sql: "alter table scans add column action text" },
 ];
 
 /** Arbitrary constant: every process that migrates takes the same lock, so API and worker can start together. */

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Verdict } from "@ap/shared";
-import { connect, migrate, Store, type Connection } from "../src/index.ts";
+import { connect, migrate, MIGRATIONS, Store, type Connection } from "../src/index.ts";
 
 const verdict = (v: Verdict["verdict"], score: number, flags: Verdict["flags"] = []): Verdict => ({ verdict: v, score, flags, aiUsed: false, settingsVersion: 1 });
 const flag = (id: "spf_fail" | "urgency", weight: number) => ({ id, category: id === "spf_fail" ? ("authentication" as const) : ("content" as const), weight, evidence: id + " evidence", source: "rule" as const });
@@ -108,7 +108,32 @@ describe("concurrent migration", () => {
     const lite = new PGlite();
     const db = drizzle(lite) as unknown as Parameters<typeof migrate>[0];
     const [a, b] = await Promise.all([migrate(db), migrate(db)]);
-    expect([...a, ...b]).toEqual(["0001_init"]);
+    expect([...a, ...b]).toEqual(MIGRATIONS.map((m) => m.id));
     await lite.close();
+  });
+});
+
+describe("acted-on tracking and write safety", () => {
+  it("records the action taken on a scan and reads it back; dry-run scans start un-acted", async () => {
+    const u = await store.createUser({ email: "acted@example.com" });
+    const s = await store.saveScan(u.id, "m1", verdict("phishing", 80, [flag("spf_fail", 20)]), { latencyMs: 1 });
+    expect(s.action).toBeNull();
+    await store.setScanAction(u.id, "m1", "move_to_phishing");
+    expect((await store.getScan(u.id, "m1"))!.action).toBe("move_to_phishing");
+  });
+  it("concurrent saves of the same new message produce one row and no error", async () => {
+    const u = await store.createUser({ email: "race@example.com" });
+    const [a, b] = await Promise.all([
+      store.saveScan(u.id, "same", verdict("safe", 0), { latencyMs: 1 }),
+      store.saveScan(u.id, "same", verdict("suspicious", 35, [flag("urgency", 35)]), { latencyMs: 1 }),
+    ]);
+    expect(a.id).toBe(b.id);
+  });
+  it("a rescan resets the acted-on marker so the new verdict can be acted on", async () => {
+    const u = await store.createUser({ email: "reset@example.com" });
+    await store.saveScan(u.id, "m", verdict("safe", 0), { latencyMs: 1 });
+    await store.setScanAction(u.id, "m", "none");
+    const again = await store.saveScan(u.id, "m", verdict("phishing", 90, [flag("spf_fail", 90)]), { latencyMs: 1 });
+    expect(again.action).toBeNull();
   });
 });

@@ -4,7 +4,7 @@ import { loadConfig } from "./config.ts";
 import { loadDotEnv } from "./env.ts";
 import { gmailProviderFactory } from "./mailer.ts";
 import { ScanService } from "./service.ts";
-import { runWorkerPass } from "./worker.ts";
+import { runMaintenance, runWorkerPass } from "./worker.ts";
 
 loadDotEnv();
 const cfg = loadConfig(process.env);
@@ -35,6 +35,9 @@ if (cfg.role !== "api") {
   void tick();
   setInterval(tick, cfg.pollSeconds * 1000);
   console.log(`Worker polling every ${cfg.pollSeconds}s`);
+  const maintain = () => runMaintenance(store, cfg.retentionDays).then((r) => r.purged && console.log(`retention: purged ${r.purged} scans older than ${cfg.retentionDays} days`), (e) => console.error("maintenance failed:", (e as Error).message));
+  void maintain();
+  setInterval(maintain, 24 * 3600 * 1000);
 }
 
 const shutdown = async () => {

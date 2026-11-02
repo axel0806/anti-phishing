@@ -40,21 +40,23 @@ export async function handshake(serverUrl: string, f: typeof fetch = fetch): Pro
 /** A session token is scoped to one server, so changing the URL or server ID drops it (and the caller must drop cached verdicts). */
 export function applyConnection(current: Connection | null, next: { serverUrl: string; serverId: string | null; token?: string }): { connection: Connection; cleared: boolean } {
   const changed = !current || current.serverUrl !== next.serverUrl || current.serverId !== next.serverId;
-  return {
-    connection: { serverUrl: next.serverUrl, serverId: next.serverId, token: changed ? (next.token ?? "") : (next.token ?? current!.token) },
-    cleared: changed && !!current && current.token !== "",
-  };
+  let token = next.token ?? (changed ? "" : current!.token);
+  // The options form is pre-filled with the old token: a token that merely echoes the previous server's must never follow us to a new one.
+  if (changed && current && token === current.token) token = "";
+  return { connection: { serverUrl: next.serverUrl, serverId: next.serverId, token }, cleared: changed && !!current && current.token !== "" };
 }
 
 /** Managed (enterprise policy) settings beat local ones when the URL is locked. An insecure managed URL is ignored. */
-export function resolveConnection(local: Connection | null, managed: ManagedPolicy | undefined): { connection: Connection; locked: boolean } {
-  const m = managed?.serverUrl ? normalizeServerUrl(managed.serverUrl) : null;
-  if (m?.ok) {
-    if (managed?.lockServerUrl) {
+export function resolveConnection(local: Connection | null, managed: ManagedPolicy | undefined): { connection: Connection; locked: boolean; error?: string } {
+  if (managed?.serverUrl) {
+    const m = normalizeServerUrl(managed.serverUrl);
+    if (!m.ok) {
+      // An admin asked for a lock but gave an unusable URL: stay locked and unusable so the problem is visible, never fall back to a local server.
+      if (managed.lockServerUrl) return { connection: { serverUrl: "", serverId: null, token: "" }, locked: true, error: `The managed server URL is invalid: ${m.error}` };
+    } else if (managed.lockServerUrl) {
       const same = local?.serverUrl === m.url;
       return { connection: { serverUrl: m.url, serverId: same ? local!.serverId : null, token: same ? local!.token : "" }, locked: true };
-    }
-    if (!local) return { connection: { ...DEFAULT_CONNECTION, serverUrl: m.url }, locked: false };
+    } else if (!local) return { connection: { ...DEFAULT_CONNECTION, serverUrl: m.url }, locked: false };
   }
   return { connection: local ?? DEFAULT_CONNECTION, locked: false };
 }
@@ -67,5 +69,13 @@ export function normalizeVerdict(j: unknown): VerdictDto | null {
   if (typeof o.verdict === "string" && typeof o.score === "number" && Array.isArray(o.flags)) {
     return { verdict: o as unknown as VerdictDto["verdict"], action: typeof o.action === "string" ? o.action : "none", shadow: false };
   }
+  return null;
+}
+
+/** Why the extension cannot work yet, or null if it can. Shown as a badge so a managed install is never silently dead. */
+export function setupProblem(r: { connection: Connection; error?: string }, hasPermission: boolean): string | null {
+  if (r.error) return r.error;
+  if (!r.connection.serverUrl) return "No server configured";
+  if (!hasPermission) return "Click to allow access to " + r.connection.serverUrl;
   return null;
 }

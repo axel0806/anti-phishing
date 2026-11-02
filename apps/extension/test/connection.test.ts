@@ -68,9 +68,6 @@ describe("resolveConnection (managed policy)", () => {
     expect(resolveConnection(local, { serverUrl: "https://corp.example" })).toEqual({ connection: local, locked: false });
     expect(resolveConnection(null, { serverUrl: "https://corp.example" }).connection.serverUrl).toBe("https://corp.example");
   });
-  it("ignores an insecure managed URL rather than trusting it", () => {
-    expect(resolveConnection(local, { serverUrl: "http://evil.example", lockServerUrl: true })).toEqual({ connection: local, locked: false });
-  });
 });
 
 describe("normalizeVerdict", () => {
@@ -81,5 +78,41 @@ describe("normalizeVerdict", () => {
     expect(normalizeVerdict(local)).toEqual(local);
     expect(normalizeVerdict(null)).toBeNull();
     expect(normalizeVerdict({ nonsense: true })).toBeNull();
+  });
+});
+
+describe("applyConnection as the options page uses it (token field is pre-filled with the old token)", () => {
+  const cur: Connection = { serverUrl: "https://a.com", serverId: "A", token: "OLD" };
+  it("never carries the old token to a different server, even when the form still holds it", () => {
+    const r = applyConnection(cur, { serverUrl: "https://evil.example", serverId: "B", token: "OLD" });
+    expect(r.connection.token).toBe("");
+    expect(r.cleared).toBe(true);
+  });
+  it("still accepts a genuinely new token for the new server", () => {
+    expect(applyConnection(cur, { serverUrl: "https://b.com", serverId: "B", token: "NEW" }).connection.token).toBe("NEW");
+  });
+  it("keeps the token when the server is unchanged", () => {
+    expect(applyConnection(cur, { serverUrl: "https://a.com", serverId: "A", token: "OLD" }).connection.token).toBe("OLD");
+  });
+});
+
+describe("resolveConnection with an invalid managed lock", () => {
+  it("stays locked and unusable with an error, instead of silently unlocking", () => {
+    const r = resolveConnection({ serverUrl: "https://mine.example", serverId: "M", token: "t" }, { serverUrl: "http://evil.example", lockServerUrl: true });
+    expect(r.locked).toBe(true);
+    expect(r.connection.serverUrl).toBe("");
+    expect(r.connection.token).toBe("");
+    expect(r.error).toMatch(/managed/i);
+  });
+});
+
+import { setupProblem } from "../src/connection.ts";
+describe("setupProblem", () => {
+  const ok = { connection: { serverUrl: "https://x.com", serverId: "X", token: "t" } };
+  it("reports a missing permission, an invalid managed URL, or nothing", () => {
+    expect(setupProblem(ok, true)).toBeNull();
+    expect(setupProblem(ok, false)).toMatch(/allow access/i);
+    expect(setupProblem({ connection: { serverUrl: "", serverId: null, token: "" }, error: "The managed server URL is invalid: x" }, false)).toMatch(/managed/i);
+    expect(setupProblem({ connection: { serverUrl: "", serverId: null, token: "" } }, true)).toMatch(/no server/i);
   });
 });

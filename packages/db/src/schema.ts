@@ -51,6 +51,7 @@ export const scans = pgTable("scans", {
   sender: text("sender"),
   subjectHash: text("subject_hash"),
   pinned: boolean("pinned").notNull().default(false), // a manual verdict: never re-scored
+  action: text("action"), // null until the worker/act scan has applied (or ruled out) a mailbox action
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   unique("scans_user_message").on(t.userId, t.providerMessageId),

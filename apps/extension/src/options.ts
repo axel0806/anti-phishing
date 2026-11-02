@@ -16,7 +16,8 @@ async function load(): Promise<{ local: Connection | null; managed: ManagedPolic
 
 async function init() {
   const { local, managed } = await load();
-  const { connection, locked } = resolveConnection(local, managed);
+  const { connection, locked, error } = resolveConnection(local, managed);
+  if (error) status(error, "error");
   $<HTMLInputElement>("url").value = connection.serverUrl;
   $<HTMLInputElement>("token").value = connection.token;
   if (locked) {

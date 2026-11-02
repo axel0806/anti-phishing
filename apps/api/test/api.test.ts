@@ -17,7 +17,7 @@ const fakeMail: MailProvider = {
   fetchRaw: async (id) => { if (!messages[id]) throw new Error("no such message"); return messages[id]!; },
   move: async (id, f) => { mailLog.push(`move ${id} ${f}`); },
   addLabel: async (id, l) => { mailLog.push(`label ${id} ${l}`); },
-  ensureFolder: async (n) => n, listRecentInbox: async () => [], getLabelNames: async () => [], watch: async () => {},
+  ensureFolder: async (n) => n, listRecentInbox: async () => [], getLabelNames: async () => [], watch: async () => {}, unmove: async (id, f) => { mailLog.push(`unmove ${id} ${f}`); },
 };
 
 const tokenFor = (u: User, sid = SID, exp = Math.floor(Date.now() / 1000) + 3600) => signToken(SECRET, { uid: u.id, sid, exp });
@@ -179,5 +179,73 @@ describe("scan, verdict, feedback", () => {
       call(u, "POST", "/v1/scan", { providerMessageId: "lunch" }),
     ]);
     expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
+  });
+});
+
+describe("prototype pollution over HTTP", () => {
+  it("a __proto__ merge-patch is rejected and cannot change how other requests are parsed", async () => {
+    const u = await newUser("pollute@example.com");
+    const r = await app.inject({
+      method: "PATCH", url: "/v1/settings", payload: '{"__proto__":{"mode":"act","rescan":true}}',
+      headers: { authorization: "Bearer " + tokenFor(u), "content-type": "application/merge-patch+json" },
+    });
+    expect(r.statusCode).toBeGreaterThanOrEqual(400);
+    expect(r.statusCode).toBeLessThan(500);
+    expect(({} as Record<string, unknown>).mode).toBeUndefined();
+    mailLog.length = 0;
+    const s = await call(u, "POST", "/v1/scan", { providerMessageId: "phish" });
+    expect(s.json()).toMatchObject({ action: "none" });
+    expect(mailLog).toEqual([]);
+  });
+});
+
+describe("dry-run scans do not block later action", () => {
+  it("an extension dry-run followed by an act scan still moves the mail, exactly once", async () => {
+    const u = await newUser("dryfirst@example.com");
+    mailLog.length = 0;
+    await call(u, "POST", "/v1/scan", { providerMessageId: "phish", mode: "dry_run" });
+    expect(mailLog).toEqual([]);
+    const act = await call(u, "POST", "/v1/scan", { providerMessageId: "phish", mode: "act" });
+    expect(act.json()).toMatchObject({ verdict: "phishing", action: "move_to_phishing", cached: true });
+    const again = await call(u, "POST", "/v1/scan", { providerMessageId: "phish", mode: "act" });
+    expect(again.json()).toMatchObject({ action: "none" });
+    expect(mailLog).toEqual(["move phish Phishing"]);
+  });
+  it("shadow mode does not consume the chance to act; turning it off later does", async () => {
+    const u = await newUser("shadowlater@example.com");
+    await call(u, "PATCH", "/v1/settings", { shadowMode: true });
+    mailLog.length = 0;
+    await call(u, "POST", "/v1/scan", { providerMessageId: "phish", mode: "act" });
+    expect(mailLog).toEqual([]);
+    await call(u, "PATCH", "/v1/settings", { shadowMode: false });
+    const r = await call(u, "POST", "/v1/scan", { providerMessageId: "phish", mode: "act" });
+    expect(r.json()).toMatchObject({ action: "move_to_phishing" });
+    expect(mailLog).toEqual(["move phish Phishing"]);
+  });
+});
+
+describe("feedback acts on the mailbox", () => {
+  it("not_phishing puts the message back; phishing moves it; mail failures do not fail the feedback", async () => {
+    const u = await newUser("fbmail@example.com");
+    await call(u, "POST", "/v1/scan", { providerMessageId: "phish", mode: "act" });
+    mailLog.length = 0;
+    const back = await call(u, "POST", "/v1/messages/phish/feedback", { label: "not_phishing" });
+    expect(back.json()).toMatchObject({ verdict: "safe", mailAction: "restored" });
+    expect(mailLog).toEqual(["unmove phish Phishing"]);
+    const v2 = await newUser("fbmail2@example.com");
+    await call(v2, "POST", "/v1/scan", { providerMessageId: "lunch" });
+    mailLog.length = 0;
+    const mv = await call(v2, "POST", "/v1/messages/lunch/feedback", { label: "phishing" });
+    expect(mv.json()).toMatchObject({ verdict: "phishing", mailAction: "moved" });
+    expect(mailLog).toEqual(["move lunch Phishing"]);
+  });
+  it("still records the feedback when the mailbox call fails", async () => {
+    const failing = buildApp({ store, secret: SECRET, serverId: SID, service: new ScanService({ store, mailFor: () => ({ ...fakeMail, unmove: async () => { throw new Error("gmail down"); } }) }) });
+    const u = await newUser("fbfail@example.com");
+    await failing.inject({ method: "POST", url: "/v1/scan", payload: { providerMessageId: "phish" }, headers: { authorization: "Bearer " + tokenFor(u) } });
+    const r = await failing.inject({ method: "POST", url: "/v1/messages/phish/feedback", payload: { label: "not_phishing" }, headers: { authorization: "Bearer " + tokenFor(u) } });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ verdict: "safe", pinned: true, mailAction: "failed" });
+    await failing.close();
   });
 });

@@ -27,3 +27,11 @@ describe("loadConfig", () => {
     expect(loadConfig(noGoogle).google).toBeNull();
   });
 });
+
+describe("retention config", () => {
+  it("defaults to 90 days and validates RETENTION_DAYS", () => {
+    expect(loadConfig(good).retentionDays).toBe(90);
+    expect(loadConfig({ ...good, RETENTION_DAYS: "30" }).retentionDays).toBe(30);
+    expect(() => loadConfig({ ...good, RETENTION_DAYS: "0" })).toThrow(/RETENTION_DAYS/);
+  });
+});

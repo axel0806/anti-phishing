@@ -17,7 +17,7 @@ function fakeProvider() {
     addLabel: async (id, l) => { log.push(`label ${id} ${l}`); },
     ensureFolder: async (n) => n,
     listRecentInbox: async () => ["p1", "l1", "bad"],
-    getLabelNames: async () => [],
+    getLabelNames: async () => [], unmove: async () => {},
     watch: async () => {},
   };
   return { p, log };

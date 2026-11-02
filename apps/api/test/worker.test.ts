@@ -17,7 +17,7 @@ function mail(log: string[], inbox: string[]): MailProvider {
   return {
     fetchRaw: async (id) => { if (id === "bad") throw new Error("boom"); return msgs[id]!; },
     move: async (id, f) => { log.push(`move ${id} ${f}`); }, addLabel: async (id, l) => { log.push(`label ${id} ${l}`); },
-    ensureFolder: async (n) => n, listRecentInbox: async () => inbox, getLabelNames: async () => [], watch: async () => {},
+    ensureFolder: async (n) => n, listRecentInbox: async () => inbox, getLabelNames: async () => [], watch: async () => {}, unmove: async () => {},
   };
 }
 
@@ -61,5 +61,31 @@ describe("gmailProviderFactory", () => {
     expect(a).not.toBeNull();
     expect(f(withTokens)).toBe(a);
     expect(f({ ...withTokens, encryptedTokens: "garbage" })).toBeNull();
+  });
+});
+
+import { runMaintenance } from "../src/worker.ts";
+
+describe("worker after an extension dry-run", () => {
+  it("still acts on a message the extension already scanned in dry-run mode", async () => {
+    const log: string[] = [];
+    const u = await store.createUser({ email: "w3@example.com" });
+    await store.setEncryptedTokens(u.id, "blob");
+    const m = mail(log, ["p1"]);
+    const service = new ScanService({ store, mailFor: () => m });
+    await service.scan(u, "p1", { mode: "dry_run" });
+    expect(log).toEqual([]);
+    const r = await runWorkerPass(store, service, () => m, { limit: 5 });
+    expect(r.scanned).toBe(1);
+    expect(log).toEqual(["move p1 Phishing"]);
+  });
+});
+
+describe("maintenance", () => {
+  it("purges scans past the retention window", async () => {
+    const u = await store.createUser({ email: "w4@example.com" });
+    await store.saveScan(u.id, "old", { verdict: "safe", score: 0, flags: [], aiUsed: false, settingsVersion: 1 }, { latencyMs: 1 });
+    expect(await runMaintenance(store, 90)).toEqual({ purged: 0 });
+    expect((await runMaintenance(store, -1)).purged).toBeGreaterThanOrEqual(1);
   });
 });

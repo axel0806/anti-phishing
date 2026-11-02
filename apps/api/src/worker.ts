@@ -17,18 +17,24 @@ export async function runWorkerPass(
     if (!mail) continue;
     out.users++;
     let ids: string[];
-    try { ids = await mail.listRecentInbox(opts.limit ?? 25); } catch (e) { out.failed++; opts.log?.(`list failed for ${user.email}: ${(e as Error).message}`); continue; }
+    try { ids = await mail.listRecentInbox(opts.limit ?? 25); } catch (e) { out.failed++; opts.log?.(`list failed for user ${user.id}: ${(e as Error).message}`); continue; }
     for (const id of ids) {
-      if (await store.getScan(user.id, id)) continue; // already handled (including user-pinned verdicts)
+      const seen = await store.getScan(user.id, id);
+      if (seen && (seen.pinned || seen.action !== null)) continue; // handled, or judged by the user; a dry-run scan still awaits its action
       try {
         const r = await service.scan(user, id, { mode: "act" });
-        if (!r.cached) out.scanned++;
+        if (!r.cached || r.action !== "none") out.scanned++;
       } catch (e) {
         if (e instanceof ScanInProgress || e instanceof MailUnavailable) continue;
         out.failed++;
-        opts.log?.(`scan failed for ${user.email}/${id}: ${(e as Error).message}`);
+        opts.log?.(`scan failed for user ${user.id}/${id}: ${(e as Error).message}`);
       }
     }
   }
   return out;
+}
+
+/** Nightly housekeeping: enforce data retention. */
+export async function runMaintenance(store: Store, retentionDays: number): Promise<{ purged: number }> {
+  return { purged: await store.purgeScansOlderThan(retentionDays) };
 }
