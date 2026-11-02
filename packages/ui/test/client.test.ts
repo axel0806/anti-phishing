@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchVerdict } from "../src/background.ts";
+import { fetchVerdict } from "../src/client.ts";
 import type { Connection } from "../src/connection.ts";
 
 const conn = (token = ""): Connection => ({ serverUrl: "https://phish.example", serverId: "S", token });

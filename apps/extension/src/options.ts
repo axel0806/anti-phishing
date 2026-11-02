@@ -1,4 +1,4 @@
-import { applyConnection, handshake, normalizeServerUrl, resolveConnection, type Connection, type ManagedPolicy } from "./connection.ts";
+import { applyConnection, handshake, normalizeServerUrl, resolveConnection, type Connection, type ManagedPolicy } from "@ap/ui";
 
 const api = (globalThis as any).browser ?? (globalThis as any).chrome;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;

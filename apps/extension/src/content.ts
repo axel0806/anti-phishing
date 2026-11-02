@@ -1,34 +1,7 @@
-import { bannerModel, type BannerModel, type VerdictDto } from "./banner.ts";
-import { VerdictCache } from "./cache.ts";
-import { BANNER_ATTR, MESSAGE_SELECTOR, messageIdOf } from "./selectors.ts";
+import { BANNER_ATTR, bannerModel, renderBanner, VerdictCache, type VerdictDto } from "@ap/ui";
+import { MESSAGE_SELECTOR, messageIdOf } from "./selectors.ts";
 
 const api = (globalThis as any).browser ?? (globalThis as any).chrome;
-const COLORS = { phishing: { bg: "#fde8e8", border: "#c81e1e" }, suspicious: { bg: "#fef6e0", border: "#b7791f" } } as const;
-
-function render(m: BannerModel): HTMLElement {
-  const c = COLORS[m.level];
-  const box = document.createElement("div");
-  box.setAttribute(BANNER_ATTR, "1");
-  box.style.cssText = `background:${c.bg};border-left:4px solid ${c.border};padding:10px 14px;margin:8px 0;font:14px/1.4 Arial,sans-serif;color:#222`;
-  const title = document.createElement("strong");
-  title.textContent = m.title; // textContent only: flag evidence comes from untrusted email content
-  box.append(title);
-  if (m.reasons.length) {
-    const ul = document.createElement("ul");
-    ul.style.margin = "6px 0 0 18px";
-    for (const r of m.reasons) { const li = document.createElement("li"); li.textContent = r; ul.append(li); }
-    box.append(ul);
-  }
-  if (m.explanation) {
-    const ex = document.createElement("div");
-    ex.style.cssText = "margin-top:8px;font-style:italic";
-    ex.textContent = "AI assessment: " + m.explanation; // textContent only: model output can echo email content
-    box.append(ex);
-  }
-  if (m.note) { const n = document.createElement("div"); n.style.cssText = "margin-top:6px;font-size:12px;color:#555"; n.textContent = m.note; box.append(n); }
-  return box;
-}
-
 const cache = new VerdictCache(async (id) => ((await api.runtime.sendMessage({ type: "verdict", id })) as VerdictDto | null) ?? null);
 const done = new WeakSet<Element>();
 // Direct children only: the email body is untrusted and could contain a lookalike attribute.
@@ -40,7 +13,7 @@ async function annotate(el: Element): Promise<void> {
   try {
     const dto = await cache.get(id);
     const model = dto ? bannerModel(dto) : null;
-    if (model && !hasBanner(el)) el.prepend(render(model));
+    if (model && !hasBanner(el)) el.prepend(renderBanner(model));
   } catch {
     // Server not running: fail quietly, never break Gmail.
   }

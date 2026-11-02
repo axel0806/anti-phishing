@@ -1,28 +1,4 @@
-import type { VerdictDto } from "./banner.ts";
-import { normalizeVerdict, resolveConnection, setupProblem, type Connection, type ManagedPolicy } from "./connection.ts";
-
-/**
- * Fetches a verdict from the configured server. If the message has not been scanned yet and we hold a session token,
- * asks the server for a dry-run scan (the extension never moves mail itself). Null on any failure: Gmail must never break.
- */
-export async function fetchVerdict(id: string, conn: Connection, f: typeof fetch = fetch): Promise<VerdictDto | null> {
-  if (!conn.serverUrl) return null;
-  const headers: Record<string, string> = conn.token ? { Authorization: `Bearer ${conn.token}` } : {};
-  try {
-    const res = await f(`${conn.serverUrl}/v1/messages/${encodeURIComponent(id)}/verdict`, { headers });
-    if (res.ok) return normalizeVerdict(await res.json());
-    if (res.status === 404 && conn.token) {
-      const scan = await f(`${conn.serverUrl}/v1/scan`, {
-        method: "POST", headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ providerMessageId: id, mode: "dry_run" }),
-      });
-      return scan.ok ? normalizeVerdict(await scan.json()) : null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+import { fetchVerdict, resolveConnection, setupProblem, type Connection, type ManagedPolicy, type VerdictDto } from "@ap/ui";
 
 // `browser` exists in Firefox, `chrome` in Chrome; both accept sendResponse + `return true`.
 const api = (globalThis as any).browser ?? (globalThis as any).chrome;

@@ -8,7 +8,7 @@ import { DEFAULT_SETTINGS } from "@ap/shared";
 import type { MailProvider } from "@ap/mail";
 import { loadStore, saveStore, scanInbox, type VerdictStore } from "../src/runner.ts";
 import { createVerdictServer } from "../src/server.ts";
-import { VerdictCache } from "../../extension/src/cache.ts";
+import { VerdictCache } from "@ap/ui";
 
 const eml = (p: string) => readFileSync(new URL("../../../corpus/" + p, import.meta.url));
 
