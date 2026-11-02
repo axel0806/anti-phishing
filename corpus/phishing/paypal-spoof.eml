@@ -1,0 +1,8 @@
+Authentication-Results: mx.google.com; spf=fail; dkim=none; dmarc=fail
+From: "PayPal Support" <help@paypa1-secure.net>
+To: me@example.com
+Subject: Urgent: your account suspended
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<p>Dear customer, please verify your password within 24 hours: <a href="http://paypa1-secure.net/login">https://paypal.com/signin</a></p>

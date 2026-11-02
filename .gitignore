@@ -1,0 +1,15 @@
+node_modules
+dist
+.superpowers
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+corpus/legit/*
+!corpus/legit/lunch.eml
+!corpus/legit/newsletter.eml
+.tokens.json
+apps/extension/dist
+apps/extension/dist-firefox
+.verdicts.json
+.data

@@ -1,0 +1,8 @@
+Authentication-Results: mx.google.com; spf=pass; dkim=pass; dmarc=pass
+From: "Alice" <alice@company.example>
+To: me@example.com
+Subject: Lunch?
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Want to grab lunch tomorrow? Notes from the meeting are attached to the wiki page.

@@ -1,0 +1,40 @@
+{
+  "name": "anti-phishing",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "corpus"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "login": "tsx apps/local/src/cli.ts login",
+    "start": "tsx apps/local/src/cli.ts run",
+    "start:act": "tsx apps/local/src/cli.ts run --act",
+    "corpus": "tsx corpus/run.ts",
+    "build:ext": "node apps/extension/build.mjs",
+    "api": "tsx apps/api/src/main.ts",
+    "api:cli": "tsx apps/api/src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.9.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "zod": "^4.6.7"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.14",
+    "drizzle-orm": "^0.45.4",
+    "fastify": "^5.12.8",
+    "mailparser": "^3.14.1",
+    "parse5": "^8.1.0",
+    "pg": "^8.23.1",
+    "tldts": "^7.4.19"
+  }
+}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anti-Phishing settings</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 520px; margin: 32px auto; padding: 0 16px; color: #1c1c1c; }
+    label { display: block; font-weight: 600; margin: 16px 0 4px; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; font: inherit; }
+    button { margin-top: 16px; padding: 8px 16px; font: inherit; cursor: pointer; }
+    #status { margin-top: 16px; padding: 8px 12px; border-left: 4px solid #888; background: #f4f4f4; min-height: 1.5em; }
+    #status.ok { border-color: #1a7f37; } #status.error { border-color: #c81e1e; }
+    .hint { color: #555; font-size: 13px; margin-top: 4px; }
+    #managed { display: none; background: #eef4ff; padding: 8px 12px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Anti-Phishing</h1>
+  <div id="managed">Managed by your organization: the server address is set by policy and cannot be changed here.</div>
+  <form id="form">
+    <label for="url">Server address</label>
+    <input id="url" type="url" autocomplete="off" spellcheck="false" placeholder="https://phish.example.com">
+    <div class="hint">HTTPS is required, except for localhost. Default: the local runner at http://127.0.0.1:8787.</div>
+    <label for="token">Session token</label>
+    <input id="token" type="password" autocomplete="off" placeholder="Leave empty for the local runner">
+    <div class="hint">Ask your administrator, or run <code>npm run api:cli -- token you@example.com</code> on your own server.</div>
+    <button type="submit">Connect and save</button>
+  </form>
+  <div id="status" role="status"></div>
+  <script src="options.js"></script>
+</body>
+</html>
