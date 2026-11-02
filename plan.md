@@ -228,7 +228,7 @@ interface Settings {
 | GET | `/settings` | Effective settings for the caller (merged layers) |
 | PATCH | `/settings` | Update user overrides; rejects locked fields |
 | GET / PUT | `/orgs/:id/policy` | Org defaults + locks (admin only) |
-| POST / DELETE | `/lists/:allow|block` | Add or remove list entries |
+| POST / DELETE | `/lists/:kind` (allow or block) | Add or remove list entries |
 | POST | `/scan` | Score one message (used by the extension and the webhook worker) |
 | GET | `/messages/:id/verdict` | Verdict, score and flags for the UI |
 | POST | `/messages/:id/feedback` | "Not phishing" / "Report phishing" |
