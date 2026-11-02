@@ -137,3 +137,22 @@ describe("Microsoft OAuth", () => {
     expect(revoked).toBe(1);
   });
 });
+
+describe("GraphProvider.resolveId", () => {
+  it("translates an Outlook REST id into the immutable id used for scans", async () => {
+    const { p, calls } = provider(() => ({ json: { value: [{ sourceId: "REST1", targetId: "IMM1" }] } }));
+    expect(await p.resolveId("REST1", "outlook_rest")).toBe("IMM1");
+    expect(calls[0]!.url).toBe(`${G}/me/translateExchangeIds`);
+    expect(calls[0]!.body).toEqual({ inputIds: ["REST1"], sourceIdType: "restId", targetIdType: "restImmutableEntryId" });
+  });
+  it("passes ids through when no translation is requested, and rejects unknown formats", async () => {
+    const { p, calls } = provider(() => ({ json: {} }));
+    expect(await p.resolveId("X", undefined)).toBe("X");
+    await expect(p.resolveId("X", "ews_magic")).rejects.toThrow(/format/i);
+    expect(calls).toHaveLength(0);
+  });
+  it("fails clearly when Graph returns no translation", async () => {
+    const { p } = provider(() => ({ json: { value: [{ sourceId: "R", targetId: "" }] } }));
+    await expect(p.resolveId("R", "outlook_rest")).rejects.toThrow(/translate/i);
+  });
+});

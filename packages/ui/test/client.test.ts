@@ -47,3 +47,14 @@ describe("fetchVerdict", () => {
     expect(await fetchVerdict("x", conn("t"), (async () => { throw new Error("down"); }) as unknown as typeof fetch)).toBeNull();
   });
 });
+
+describe("fetchVerdict with an id format (Outlook add-in)", () => {
+  it("tells the server how to interpret the id on both the lookup and the dry-run scan", async () => {
+    const { f, calls } = fakeFetch({
+      "GET https://phish.example/v1/messages/REST%3D/verdict?idFormat=outlook_rest": { status: 404 },
+      "POST https://phish.example/v1/scan": { status: 200, body: cloud },
+    });
+    expect(await fetchVerdict("REST=", conn("tok"), f, { idFormat: "outlook_rest" })).toMatchObject({ verdict: { score: 70 } });
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ providerMessageId: "REST=", mode: "dry_run", idFormat: "outlook_rest" });
+  });
+});

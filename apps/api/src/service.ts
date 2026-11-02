@@ -14,6 +14,7 @@ export const SUSPICIOUS_LABEL = "Suspicious";
 
 export class ScanInProgress extends Error {}
 export class MailUnavailable extends Error {}
+export class UnsupportedIdFormat extends Error {}
 
 export interface ScanServiceDeps {
   store: Store;
@@ -110,6 +111,22 @@ export class ScanService {
     for (const id of open) {
       try { await this.scan(user, id, { rescan: true, mode: "dry_run" }); out.rescanned++; } catch { out.failed++; }
     }
+    return out;
+  }
+
+  private translated = new Map<string, string>();
+  /** Converts a client-specific message id (e.g. from the Outlook add-in) into the id scans are stored under. Plain ids pass through. */
+  async resolveMessageId(user: User, id: string, format: string | undefined): Promise<string> {
+    if (!format) return id;
+    const mail = this.deps.mailFor(user);
+    if (!mail) throw new MailUnavailable("Mailbox not linked for this user");
+    if (!mail.resolveId) throw new UnsupportedIdFormat(`The id format ${format} is not supported for your mailbox`);
+    const key = `${user.id}:${format}:${id}`;
+    const hit = this.translated.get(key);
+    if (hit) return hit;
+    const out = await mail.resolveId(id, format);
+    if (this.translated.size >= 2000) this.translated.delete(this.translated.keys().next().value!);
+    this.translated.set(key, out);
     return out;
   }
 

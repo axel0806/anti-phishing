@@ -8,6 +8,8 @@ export interface MailProvider {
   listRecentInbox(maxResults?: number): Promise<string[]>;
   getLabelNames(messageId: string): Promise<string[]>;
   watch(): Promise<void>;
+  /** Maps an id in a client-specific format (e.g. "outlook_rest" from an Outlook add-in) to the id this provider scans under. Optional: not every provider has such formats. */
+  resolveId?(id: string, format: string | undefined): Promise<string>;
 }
 
 export type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) =>

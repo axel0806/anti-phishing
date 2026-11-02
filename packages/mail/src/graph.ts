@@ -70,6 +70,19 @@ export class GraphProvider implements MailProvider {
     return ids.slice(0, maxResults);
   }
 
+  /**
+   * Outlook add-ins can only produce ordinary REST ids, but scans are keyed by immutable ids (they survive moves).
+   * Graph's translateExchangeIds converts one into the other.
+   */
+  async resolveId(id: string, format: string | undefined): Promise<string> {
+    if (format === undefined) return id;
+    if (format !== "outlook_rest") throw new Error(`Unsupported id format: ${format}`);
+    const j = await this.api("/me/translateExchangeIds", { method: "POST", body: { inputIds: [id], sourceIdType: "restId", targetIdType: "restImmutableEntryId" } });
+    const target = (j.value as { targetId?: string }[] | undefined)?.[0]?.targetId;
+    if (!target) throw new Error("Graph could not translate that message id");
+    return target;
+  }
+
   async getLabelNames(messageId: string): Promise<string[]> {
     const m = await this.api(`/me/messages/${enc(messageId)}?$select=categories,parentFolderId`);
     const names: string[] = [];

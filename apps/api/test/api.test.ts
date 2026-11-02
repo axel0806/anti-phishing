@@ -284,3 +284,35 @@ describe("who am I, and reading lists", () => {
     expect((await call(member, "GET", "/v1/lists?scope=nonsense")).statusCode).toBe(422);
   });
 });
+
+describe("provider-specific message ids (Outlook add-in)", () => {
+  it("resolves an Outlook REST id before looking up or scanning, so the add-in and the worker agree on one id", async () => {
+    const resolved: string[] = [];
+    const outlookMail: MailProvider = {
+      ...fakeMail,
+      resolveId: async (id, fmt) => { resolved.push(`${fmt}:${id}`); return fmt === "outlook_rest" ? "IMM-" + id : id; },
+      fetchRaw: async () => messages.lunch!,
+    };
+    const a2 = buildApp({ store, secret: SECRET, serverId: SID, service: new ScanService({ store, mailFor: () => outlookMail }) });
+    const u = await newUser("outlook-id@example.com");
+    const h = { authorization: "Bearer " + tokenFor(u) };
+    const miss = await a2.inject({ method: "GET", url: "/v1/messages/R1/verdict?idFormat=outlook_rest", headers: h });
+    expect(miss.statusCode).toBe(404);
+    const scan = await a2.inject({ method: "POST", url: "/v1/scan", payload: { providerMessageId: "R1", idFormat: "outlook_rest" }, headers: h });
+    expect(scan.statusCode).toBe(200);
+    expect(await store.getScan(u.id, "IMM-R1")).not.toBeNull(); // stored under the immutable id, not the REST id
+    expect(await store.getScan(u.id, "R1")).toBeNull();
+    const hit = await a2.inject({ method: "GET", url: "/v1/messages/R1/verdict?idFormat=outlook_rest", headers: h });
+    expect(hit.statusCode).toBe(200);
+    expect(resolved).toEqual(["outlook_rest:R1"]); // three requests, one Graph translation: the result is cached
+    await a2.close();
+  });
+  it("rejects an unknown id format, and a format the user's mailbox does not support", async () => {
+    const u = await newUser("badfmt@example.com");
+    expect((await call(u, "GET", "/v1/messages/X/verdict?idFormat=weird")).statusCode).toBe(422);
+    expect((await call(u, "POST", "/v1/scan", { providerMessageId: "X", idFormat: "weird" })).statusCode).toBe(422);
+    const r = await call(u, "POST", "/v1/scan", { providerMessageId: "X", idFormat: "outlook_rest" }); // Gmail fake has no resolveId
+    expect(r.statusCode).toBe(422);
+    expect(r.json().error.message).toMatch(/not supported/i);
+  });
+});

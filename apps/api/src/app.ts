@@ -9,7 +9,7 @@ import { Oidc, OidcError } from "./oidc.ts";
 import { fail } from "./errors.ts";
 import { registerSites, type Sites } from "./sites.ts";
 import type { Metrics } from "./metrics.ts";
-import { MailUnavailable, ScanInProgress, type ScanService } from "./service.ts";
+import { MailUnavailable, ScanInProgress, UnsupportedIdFormat, type ScanService } from "./service.ts";
 
 export const API_VERSION = "0.2.0";
 
@@ -34,13 +34,16 @@ declare module "fastify" {
 }
 
 
-const ScanBody = z.object({ providerMessageId: z.string().min(1).max(200), mode: z.enum(["dry_run", "act"]).optional(), rescan: z.boolean().optional() });
+const IdFormat = z.enum(["outlook_rest"]);
+const ScanBody = z.object({ providerMessageId: z.string().min(1).max(500), idFormat: IdFormat.optional(), mode: z.enum(["dry_run", "act"]).optional(), rescan: z.boolean().optional() });
 const FeedbackBody = z.object({ label: z.enum(["not_phishing", "phishing"]), updateList: z.boolean().optional() });
 const PolicyBody = z.object({ values: OrgValuesSchema, locked: z.array(z.string().max(100)).max(100) });
 const KindParam = z.enum(["allow", "block"]);
 const ListBody = ListEntrySchema.extend({ scope: z.enum(["user", "org"]).optional() });
 const SETTINGS_KEYS = new Set(Object.keys(SettingsOverridesSchema.shape));
 const SAFE_ID = /^[A-Za-z0-9_-]{1,200}$/;
+// Outlook REST ids are base64-like and may contain = + / (clients URL-encode them).
+const REST_ID = /^[A-Za-z0-9_=+/-]{1,500}$/;
 
 export function buildApp(deps: AppDeps): FastifyInstance {
   const { store, service, serverId, secret, admin } = deps;
@@ -194,11 +197,29 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       return removed ? { ok: true } : fail(reply, "not_found", "No such list entry");
     });
 
+    /** Resolves a client-specific id format (Outlook add-in) to the id scans are stored under, or replies with the right error. */
+    const resolveId = async (req: FastifyRequest, reply: FastifyReply, id: string, rawFormat: unknown): Promise<string | null> => {
+      const fmt = IdFormat.optional().safeParse(rawFormat);
+      if (!fmt.success) { fail(reply, "validation", "idFormat must be outlook_rest"); return null; }
+      if (!fmt.data && !SAFE_ID.test(id)) { fail(reply, "validation", "Bad message id"); return null; }
+      if (fmt.data && !REST_ID.test(id)) { fail(reply, "validation", "Bad message id"); return null; }
+      try {
+        return await service.resolveMessageId(req.user!, id, fmt.data);
+      } catch (e) {
+        if (e instanceof UnsupportedIdFormat) fail(reply, "validation", e.message);
+        else if (e instanceof MailUnavailable) fail(reply, "mail_unavailable", e.message);
+        else fail(reply, "validation", "That message id could not be resolved");
+        return null;
+      }
+    };
+
     priv.post("/v1/scan", async (req, reply) => {
       const body = ScanBody.safeParse(req.body);
       if (!body.success) return fail(reply, "validation", body.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+      const id = await resolveId(req, reply, body.data.providerMessageId, body.data.idFormat);
+      if (id === null) return;
       try {
-        const r = await service.scan(req.user!, body.data.providerMessageId, { mode: body.data.mode, rescan: body.data.rescan });
+        const r = await service.scan(req.user!, id, { mode: body.data.mode, rescan: body.data.rescan });
         return { ...r.scan.verdict, pinned: r.scan.pinned, action: r.action, cached: r.cached };
       } catch (e) {
         if (e instanceof ScanInProgress) return fail(reply, "scan_in_progress", "This message is already being scanned");
@@ -213,18 +234,20 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       return service.rescanRecent(req.user!, body.data.days);
     });
 
-    priv.get<{ Params: { id: string } }>("/v1/messages/:id/verdict", async (req, reply) => {
-      if (!SAFE_ID.test(req.params.id)) return fail(reply, "validation", "Bad message id");
-      const s = await store.getScan(req.user!.id, req.params.id);
+    priv.get<{ Params: { id: string }; Querystring: { idFormat?: string } }>("/v1/messages/:id/verdict", async (req, reply) => {
+      const id = await resolveId(req, reply, req.params.id, req.query.idFormat);
+      if (id === null) return;
+      const s = await store.getScan(req.user!.id, id);
       return s ? { ...s.verdict, pinned: s.pinned } : fail(reply, "not_scanned", "Message not scanned yet");
     });
 
-    priv.post<{ Params: { id: string } }>("/v1/messages/:id/feedback", async (req, reply) => {
-      if (!SAFE_ID.test(req.params.id)) return fail(reply, "validation", "Bad message id");
+    priv.post<{ Params: { id: string }; Querystring: { idFormat?: string } }>("/v1/messages/:id/feedback", async (req, reply) => {
       const body = FeedbackBody.safeParse(req.body);
       if (!body.success) return fail(reply, "validation", "label must be not_phishing or phishing");
+      const id = await resolveId(req, reply, req.params.id, req.query.idFormat);
+      if (id === null) return;
       const u = req.user!;
-      const fb = await service.applyFeedback(u, req.params.id, body.data.label);
+      const fb = await service.applyFeedback(u, id, body.data.label);
       if (!fb) return fail(reply, "not_scanned", "Message not scanned yet");
       const s = fb.scan;
       if (body.data.updateList && s.sender) {
