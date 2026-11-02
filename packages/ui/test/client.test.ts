@@ -58,3 +58,24 @@ describe("fetchVerdict with an id format (Outlook add-in)", () => {
     expect(JSON.parse(calls[1]!.body!)).toEqual({ providerMessageId: "REST=", mode: "dry_run", idFormat: "outlook_rest" });
   });
 });
+
+import { sendFeedback } from "../src/client.ts";
+
+describe("sendFeedback", () => {
+  it("posts the label with the token and id format, and reports what happened to the mailbox", async () => {
+    const { f, calls } = fakeFetch({ "POST https://phish.example/v1/messages/R%3D/feedback?idFormat=outlook_rest": { status: 200, body: { verdict: "safe", pinned: true, mailAction: "restored" } } });
+    expect(await sendFeedback("R=", conn("tok"), "not_phishing", f, { idFormat: "outlook_rest" })).toEqual({ ok: true, mailAction: "restored" });
+    expect(calls[0]!.auth).toBe("Bearer tok");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ label: "not_phishing", updateList: false });
+  });
+  it("can also ask to allow/block the sender", async () => {
+    const { f, calls } = fakeFetch({ "POST https://phish.example/v1/messages/x/feedback": { status: 200, body: {} } });
+    await sendFeedback("x", conn("tok"), "phishing", f, { updateList: true });
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ label: "phishing", updateList: true });
+  });
+  it("fails closed without a token, on errors and when the server is down", async () => {
+    expect(await sendFeedback("x", conn(), "phishing", fakeFetch({}).f)).toEqual({ ok: false });
+    expect(await sendFeedback("x", conn("t"), "phishing", fakeFetch({ "POST https://phish.example/v1/messages/x/feedback": { status: 401 } }).f)).toEqual({ ok: false });
+    expect(await sendFeedback("x", conn("t"), "phishing", (async () => { throw new Error("down"); }) as unknown as typeof fetch)).toEqual({ ok: false });
+  });
+});

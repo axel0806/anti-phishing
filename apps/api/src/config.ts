@@ -35,6 +35,8 @@ export interface Config {
   /** Lets a Prometheus server on another host read /metrics. Loopback callers never need it. */
   metricsToken: string | undefined;
   retentionDays: number;
+  /** The https address users reach this server at; enables the Outlook add-in manifest and SSO redirects. */
+  publicUrl: string | undefined;
   /** Single sign-on for the admin dashboard; null = sign in with a session token only. */
   oidc: OidcSettings | null;
   /** Network lookups used by the detectors. Both are opt-in because they send data (a domain name / a URL path) to a third party. */
@@ -124,6 +126,7 @@ export function loadConfig(env: Env): Config {
   const clientSecret = env.GOOGLE_CLIENT_SECRET ?? env.CLIENT_SECRET;
   return {
     port, role, pollSeconds, secret, tokenKey, retentionDays, ai, oidc,
+    publicUrl: env.PUBLIC_URL ? env.PUBLIC_URL.replace(/\/+$/, "") : undefined,
     lookups: { rdap: env.RDAP_LOOKUPS === "true", safeBrowsingKey: env.SAFE_BROWSING_API_KEY || undefined },
     databaseUrl: env.DATABASE_URL || undefined,
     // Derived, not secret: lets clients tell servers apart and scopes session tokens to this one.

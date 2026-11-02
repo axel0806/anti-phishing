@@ -13,3 +13,5 @@ apps/extension/dist
 apps/extension/dist-firefox
 .verdicts.json
 .data
+apps/outlook-addin/dist
+apps/dashboard/dist

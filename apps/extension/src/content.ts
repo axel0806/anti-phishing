@@ -1,4 +1,4 @@
-import { BANNER_ATTR, bannerModel, renderBanner, VerdictCache, type VerdictDto } from "@ap/ui";
+import { BANNER_ATTR, bannerModel, renderBanner, VerdictCache, type FeedbackResult, type VerdictDto } from "@ap/ui";
 import { MESSAGE_SELECTOR, messageIdOf } from "./selectors.ts";
 
 const api = (globalThis as any).browser ?? (globalThis as any).chrome;
@@ -13,7 +13,9 @@ async function annotate(el: Element): Promise<void> {
   try {
     const dto = await cache.get(id);
     const model = dto ? bannerModel(dto) : null;
-    if (model && !hasBanner(el)) el.prepend(renderBanner(model));
+    if (model && !hasBanner(el)) el.prepend(renderBanner(model, document, {
+      onFeedback: async (label) => ((await api.runtime.sendMessage({ type: "feedback", id, label })) as FeedbackResult | null) ?? { ok: false },
+    }));
   } catch {
     // Server not running: fail quietly, never break Gmail.
   }

@@ -24,3 +24,24 @@ export async function fetchVerdict(id: string, conn: Connection, f: typeof fetch
     return null;
   }
 }
+
+export type FeedbackResult = { ok: true; mailAction?: string } | { ok: false };
+
+/** "Not phishing" / "Report phishing". The server records it, pins the verdict and puts the mailbox in line (restore or move). */
+export async function sendFeedback(
+  id: string, conn: Connection, label: "not_phishing" | "phishing", f: typeof fetch = fetch, opts: { idFormat?: string; updateList?: boolean } = {},
+): Promise<FeedbackResult> {
+  if (!conn.serverUrl || !conn.token) return { ok: false };
+  try {
+    const q = opts.idFormat ? `?idFormat=${encodeURIComponent(opts.idFormat)}` : "";
+    const res = await f(`${conn.serverUrl}/v1/messages/${encodeURIComponent(id)}/feedback${q}`, {
+      method: "POST", headers: { Authorization: `Bearer ${conn.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ label, updateList: opts.updateList ?? false }),
+    });
+    if (!res.ok) return { ok: false };
+    const j = (await res.json()) as { mailAction?: unknown };
+    return { ok: true, mailAction: typeof j.mailAction === "string" ? j.mailAction : undefined };
+  } catch {
+    return { ok: false };
+  }
+}

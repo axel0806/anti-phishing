@@ -8,6 +8,7 @@ import { registerAdminRoutes } from "./adminRoutes.ts";
 import { Oidc, OidcError } from "./oidc.ts";
 import { fail } from "./errors.ts";
 import { registerSites, type Sites } from "./sites.ts";
+import { renderManifest } from "../../outlook-addin/src/manifest.ts";
 import type { Metrics } from "./metrics.ts";
 import { MailUnavailable, ScanInProgress, UnsupportedIdFormat, type ScanService } from "./service.ts";
 
@@ -25,6 +26,8 @@ export interface AppDeps {
   oidc?: Oidc;
   /** Built front-ends to host: the admin dashboard at /admin/ and the Outlook add-in at /addin/. */
   sites?: Sites;
+  /** The address users reach this server at (https). Used to generate the Outlook add-in manifest. */
+  publicUrl?: string;
   /** Bearer token for /metrics from non-loopback hosts. Without it, only loopback callers may read metrics. */
   metricsToken?: string;
 }
@@ -98,6 +101,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   }
 
   if (deps.sites) registerSites(app, deps.sites);
+  if (deps.sites?.addin) {
+    app.get("/addin/manifest.xml", async (_req, reply) => {
+      let xml: string;
+      try { xml = renderManifest(deps.publicUrl ?? ""); } catch { return fail(reply, "not_found", "Set PUBLIC_URL (https) to enable the add-in manifest"); }
+      return reply.header("content-type", "application/xml; charset=utf-8").header("content-disposition", 'attachment; filename="manifest.xml"').send(xml);
+    });
+  }
 
   app.get("/v1/health", async () => ({ version: API_VERSION, serverId, apiVersions: ["v1"] }));
 

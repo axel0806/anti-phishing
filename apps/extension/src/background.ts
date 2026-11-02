@@ -1,4 +1,4 @@
-import { fetchVerdict, resolveConnection, setupProblem, type Connection, type ManagedPolicy, type VerdictDto } from "@ap/ui";
+import { fetchVerdict, resolveConnection, sendFeedback, setupProblem, type Connection, type ManagedPolicy, type VerdictDto } from "@ap/ui";
 
 // `browser` exists in Firefox, `chrome` in Chrome; both accept sendResponse + `return true`.
 const api = (globalThis as any).browser ?? (globalThis as any).chrome;
@@ -30,8 +30,16 @@ api?.permissions?.onAdded?.addListener(() => void refreshSetupBadge());
 api?.storage?.onChanged?.addListener(() => void refreshSetupBadge());
 void refreshSetupBadge();
 
-api?.runtime?.onMessage.addListener((msg: any, _sender: unknown, sendResponse: (r: VerdictDto | null) => void) => {
-  if (msg?.type !== "verdict" || typeof msg.id !== "string") return false;
-  void currentConnection().then((c) => fetchVerdict(msg.id, c)).then(sendResponse, () => sendResponse(null));
-  return true;
+api?.runtime?.onMessage.addListener((msg: any, sender: any, sendResponse: (r: unknown) => void) => {
+  // Only our own content scripts may ask; a web page cannot reach this (no externally_connectable).
+  if (sender?.id && sender.id !== api.runtime.id) return false;
+  if (msg?.type === "verdict" && typeof msg.id === "string") {
+    void currentConnection().then((c) => fetchVerdict(msg.id, c)).then(sendResponse, () => sendResponse(null));
+    return true;
+  }
+  if (msg?.type === "feedback" && typeof msg.id === "string" && (msg.label === "not_phishing" || msg.label === "phishing")) {
+    void currentConnection().then((c) => sendFeedback(msg.id, c, msg.label)).then(sendResponse, () => sendResponse({ ok: false }));
+    return true;
+  }
+  return false;
 });

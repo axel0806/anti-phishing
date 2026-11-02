@@ -76,3 +76,25 @@ describe("not configured", () => {
     await bare.close();
   });
 });
+
+describe("Outlook add-in manifest", () => {
+  const withUrl = (publicUrl?: string) => {
+    const store = new Store(conn.db);
+    return buildApp({ store, secret: "s".repeat(32), serverId: "x", service: new ScanService({ store, mailFor: () => null }), sites: { admin: join(root, "admin"), addin: join(root, "addin") }, publicUrl });
+  };
+  it("is generated from the server's public URL, so it can never point at the wrong address", async () => {
+    const a = withUrl("https://phish.acme.example/");
+    const r = await a.inject({ method: "GET", url: "/addin/manifest.xml" });
+    expect(r.statusCode).toBe(200);
+    expect(r.headers["content-type"]).toMatch(/xml/);
+    expect(r.headers["content-disposition"]).toMatch(/manifest\.xml/);
+    expect(r.body).toContain("https://phish.acme.example/addin/taskpane.html");
+    await a.close();
+  });
+  it("is unavailable (404) without a PUBLIC_URL, or with an insecure one", async () => {
+    const none = withUrl(undefined), bad = withUrl("http://phish.acme.example");
+    expect((await none.inject({ method: "GET", url: "/addin/manifest.xml" })).statusCode).toBe(404);
+    expect((await bad.inject({ method: "GET", url: "/addin/manifest.xml" })).statusCode).toBe(404);
+    await none.close(); await bad.close();
+  });
+});

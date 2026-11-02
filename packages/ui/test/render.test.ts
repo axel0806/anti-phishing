@@ -36,3 +36,40 @@ describe("renderBanner", () => {
     expect(a.style.cssText).not.toBe(b.style.cssText);
   });
 });
+
+describe("renderBanner feedback buttons", () => {
+  const model = () => bannerModel(dto())!;
+  const click = (el: HTMLElement, label: string) => (Array.from(el.querySelectorAll("button")).find((b) => b.textContent === label) as HTMLButtonElement).click();
+
+  it("has no buttons unless a feedback handler is supplied", () => {
+    expect(renderBanner(model()).querySelectorAll("button")).toHaveLength(0);
+  });
+  it("offers both choices; a click sends the label once, disables the buttons and shows the outcome", async () => {
+    const sent: string[] = [];
+    const el = renderBanner(model(), document, { onFeedback: async (l) => { sent.push(l); return { ok: true, mailAction: "restored" }; } });
+    expect(Array.from(el.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Not phishing", "Report phishing"]);
+    click(el, "Not phishing");
+    click(el, "Not phishing"); // a double click must not send twice
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toEqual(["not_phishing"]);
+    expect(Array.from(el.querySelectorAll("button")).every((b) => b.disabled)).toBe(true);
+    expect(el.textContent).toMatch(/moved back to your inbox/i);
+  });
+  it("says so when the feedback could not be saved, and lets the user try again", async () => {
+    let n = 0;
+    const el = renderBanner(model(), document, { onFeedback: async () => ({ ok: ++n > 1 }) });
+    click(el, "Report phishing");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el.textContent).toMatch(/could not be saved/i);
+    expect(Array.from(el.querySelectorAll("button")).every((b) => !b.disabled)).toBe(true);
+    click(el, "Report phishing");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el.textContent).toMatch(/thanks/i);
+  });
+  it("survives a handler that throws", async () => {
+    const el = renderBanner(model(), document, { onFeedback: async () => { throw new Error("boom"); } });
+    click(el, "Not phishing");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el.textContent).toMatch(/could not be saved/i);
+  });
+});

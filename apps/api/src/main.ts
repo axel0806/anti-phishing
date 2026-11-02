@@ -42,7 +42,7 @@ function builtSites() {
 }
 
 if (cfg.role !== "worker") {
-  const app = buildApp({ store, service, admin, metrics, sites: builtSites(), oidc: cfg.oidc ? new Oidc({ ...cfg.oidc, secret: cfg.secret }) : undefined, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
+  const app = buildApp({ store, service, admin, metrics, sites: builtSites(), publicUrl: cfg.publicUrl, oidc: cfg.oidc ? new Oidc({ ...cfg.oidc, secret: cfg.secret }) : undefined, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
   await app.listen({ port: cfg.port, host: "0.0.0.0" });
   console.log(`API listening on :${cfg.port} (server id ${cfg.serverId})`);
 }
