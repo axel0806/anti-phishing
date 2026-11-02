@@ -24,7 +24,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
       signal: opts.signal,
       headers: { "content-type": "application/json", ...(this.cfg.apiKey ? { Authorization: `Bearer ${this.cfg.apiKey}` } : {}) },
       body: JSON.stringify({
-        model: this.cfg.model, temperature: 0, response_format: { type: "json_object" },
+        model: this.cfg.model, temperature: 0, max_tokens: 400, response_format: { type: "json_object" },
         messages: [{ role: "system", content: p.system }, { role: "user", content: p.user }],
       }),
     });

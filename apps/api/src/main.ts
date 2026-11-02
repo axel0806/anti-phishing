@@ -14,7 +14,7 @@ const store = new Store(conn.db);
 const mailFor = cfg.google ? gmailProviderFactory({ ...cfg.google, tokenKey: cfg.tokenKey }) : () => null;
 const service = new ScanService({
   store, mailFor,
-  ai: cfg.ai ? { provider: aiProviderFromConfig(cfg.ai), timeoutMs: cfg.ai.timeoutMs, price: cfg.ai.price, log: (m) => console.error(m) } : undefined,
+  ai: cfg.ai ? { provider: aiProviderFromConfig(cfg.ai), timeoutMs: cfg.ai.timeoutMs, price: cfg.ai.price, maxUserBudgetUsd: cfg.ai.maxUserBudgetUsd, log: (m) => console.error(m) } : undefined,
 });
 if (cfg.ai) console.log(`AI layer available: ${cfg.ai.kind}/${cfg.ai.model} (off for each user until they enable it)`);
 

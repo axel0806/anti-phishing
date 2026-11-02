@@ -65,6 +65,7 @@ export const scanFlags = pgTable("scan_flags", {
   flagId: text("flag_id").notNull(),
   weightApplied: integer("weight_applied").notNull(),
   evidence: text("evidence").notNull(),
+  source: text("source").notNull().default("rule"), // rule | ai: model output must never pass for deterministic evidence
 }, (t) => [primaryKey({ columns: [t.scanId, t.flagId] }), index("scan_flags_flag").on(t.flagId)]);
 
 export const feedback = pgTable("feedback", {

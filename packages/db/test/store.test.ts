@@ -167,3 +167,28 @@ describe("AI cache, usage and explanations", () => {
     expect(s.verdict).toMatchObject({ aiUsed: true, aiExplanation: "Looks like a fake invoice." });
   });
 });
+
+describe("review I6/I3 persistence", () => {
+  it("remembers whether each flag came from a rule or the model", async () => {
+    const u = await store.createUser({ email: "src@example.com" });
+    const flags = [
+      { id: "spf_fail" as const, category: "authentication" as const, weight: 20, evidence: "SPF fail", source: "rule" as const },
+      { id: "urgency" as const, category: "content" as const, weight: 10, evidence: "AI detected: urgency", source: "ai" as const },
+      { id: "ai_intent" as const, category: "ai" as const, weight: 30, evidence: "why", source: "ai" as const },
+    ];
+    const s = await store.saveScan(u.id, "m", { verdict: "suspicious", score: 60, flags, aiUsed: true, settingsVersion: 1 }, { latencyMs: 1 });
+    const by = Object.fromEntries(s.verdict.flags.map((f) => [f.id, f.source]));
+    expect(by).toEqual({ spf_fail: "rule", urgency: "ai", ai_intent: "ai" });
+  });
+  it("sums AI spend across an org, this month only", async () => {
+    const org = await store.createOrg("Pool");
+    const a = await store.createUser({ email: "pool-a@example.com", orgId: org.id });
+    const b = await store.createUser({ email: "pool-b@example.com", orgId: org.id });
+    const outsider = await store.createUser({ email: "pool-out@example.com" });
+    await store.aiRecordUsage(a.id, 1.5);
+    await store.aiRecordUsage(b.id, 2);
+    await store.aiRecordUsage(outsider.id, 100);
+    expect(await store.aiSpentThisMonthForOrg(org.id)).toBeCloseTo(3.5);
+    expect(await store.aiSpentThisMonthForOrg(org.id, new Date("2001-01-01"))).toBe(0);
+  });
+});

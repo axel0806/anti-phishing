@@ -2,6 +2,9 @@ import { randomBytes } from "node:crypto";
 import { TACTICS } from "./schema.ts";
 import type { AiInput } from "./redact.ts";
 
+/** Bump whenever SYSTEM_PROMPT or the input shape changes, so cached answers from the old prompt are not reused. */
+export const PROMPT_VERSION = "p1";
+
 export const SYSTEM_PROMPT = [
   "You are an email security analyst. You judge whether an email is phishing or social engineering.",
   "",

@@ -61,7 +61,8 @@ export interface Settings {
   allowlist: ListEntry[];
   blocklist: ListEntry[];
   shadowMode: boolean;
-  ai: { enabled: boolean; mode: "uncertain_only" | "always"; monthlyBudgetUsd: number };
+  /** `orgMonthlyBudgetUsd` can only come from org policy: it caps the combined spend of everyone in the org. */
+  ai: { enabled: boolean; mode: "uncertain_only" | "always"; monthlyBudgetUsd: number; orgMonthlyBudgetUsd?: number };
 }
 
 export const ListEntrySchema = z.object({ matchType: z.enum(["address", "domain"]), value: z.string().min(1) });

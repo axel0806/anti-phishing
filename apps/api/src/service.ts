@@ -20,7 +20,7 @@ export interface ScanServiceDeps {
   mailFor: (user: User) => MailProvider | null;
   lookups?: DetectorContext["lookups"];
   /** The server's AI layer. Absent = no user can enable AI. */
-  ai?: { provider: AiProvider; timeoutMs?: number; price?: Price; log?: (m: string) => void };
+  ai?: { provider: AiProvider; timeoutMs?: number; price?: Price; maxUserBudgetUsd?: number; log?: (m: string) => void };
 }
 
 export interface Effective { settings: Settings; lockedFields: string[]; version: number }
@@ -84,7 +84,14 @@ export class ScanService {
       set: (k, v) => store.aiCacheSet(k, v),
     };
     const budget: AiBudget = {
-      allow: async () => (await store.aiSpentThisMonth(user.id)) < settings.ai.monthlyBudgetUsd,
+      // The user's own budget can never exceed the server's cap, and an org may also cap the combined spend of all its members.
+      allow: async () => {
+        const limit = Math.min(settings.ai.monthlyBudgetUsd, ai.maxUserBudgetUsd ?? Infinity);
+        if ((await store.aiSpentThisMonth(user.id)) >= limit) return false;
+        const pool = settings.ai.orgMonthlyBudgetUsd;
+        if (pool !== undefined && user.orgId && (await store.aiSpentThisMonthForOrg(user.orgId)) >= pool) return false;
+        return true;
+      },
       record: (cost) => store.aiRecordUsage(user.id, cost),
     };
     return {

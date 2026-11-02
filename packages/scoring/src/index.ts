@@ -7,7 +7,9 @@ export function score(flags: Flag[], settings: Settings, opts: { aiUsed?: boolea
   const byId = new Map<string, Flag>();
   for (const f of flags) {
     const prev = byId.get(f.id);
-    if (!prev || f.weight > prev.weight) byId.set(f.id, f);
+    // A deterministic rule flag always beats an AI copy of the same id, so its evidence survives and it stays outside the AI cap.
+    const better = !prev || (f.source === "rule" && prev.source === "ai") || (f.source === prev.source && f.weight > prev.weight);
+    if (better) byId.set(f.id, f);
   }
   const unique = [...byId.values()];
 

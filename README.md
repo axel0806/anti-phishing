@@ -49,6 +49,8 @@ AI_PROVIDER=anthropic  ANTHROPIC_API_KEY=...  AI_PRICE_IN_PER_MTOK=...  AI_PRICE
 AI_PROVIDER=openai  AI_BASE_URL=http://localhost:11434/v1  AI_MODEL=llama3.1
 ```
 
-What the model sees: sender name and address, reply-to, subject, the body truncated to 4,000 characters, link text with domains only (no query strings), attachment names and types, and the rule flags already fired. Email addresses, phone numbers and long digit strings are redacted first. The email is wrapped in a randomly delimited data block, the system prompt tells the model it is untrusted, and the reply must match a strict schema.
+Spend is bounded three ways: each user's own monthly budget, a server-wide ceiling on that budget (`AI_MAX_USER_BUDGET_USD`, default $20), and an optional pooled org budget (`ai.orgMonthlyBudgetUsd` in org policy). Admins can lock all of `ai` or a single field such as `ai.monthlyBudgetUsd`. Calls that time out are still charged at an estimate, because the provider may bill them.
+
+What the model sees: sender name and address, reply-to, subject, the body truncated to 4,000 characters, links reduced to their host (no paths, query strings or tokens, anywhere in the text), attachment names and types, and the rule flags already fired. Email addresses, phone numbers and long digit strings are redacted first. The email is wrapped in a randomly delimited data block, the system prompt tells the model it is untrusted, and the reply must match a strict schema.
 
 Measure it: `npm run corpus:ab` runs `corpus/uncertain` through rules-only and rules + AI and reports the recall and false-positive change (needs a provider configured in the environment). `corpus/injection` holds prompt-injection emails used in the tests.

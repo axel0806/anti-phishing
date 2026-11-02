@@ -102,7 +102,7 @@ export class Store {
     const fl = await this.db.select().from(scanFlags).where(eq(scanFlags.scanId, s.id));
     const flags: Flag[] = fl.map((f) => ({
       id: f.flagId as FlagId, category: FLAG_CATEGORY[f.flagId as FlagId], weight: f.weightApplied, evidence: f.evidence,
-      source: f.flagId === "ai_intent" ? "ai" : "rule",
+      source: f.source === "ai" ? "ai" : "rule",
     }));
     return {
       id: s.id, pinned: s.pinned, action: s.action, sender: s.sender, createdAt: s.createdAt,
@@ -139,7 +139,7 @@ export class Store {
   }
 
   private async writeFlags(tx: Pick<Db, "insert">, scanId: string, v: Verdict): Promise<void> {
-    if (v.flags.length) await tx.insert(scanFlags).values(v.flags.map((f) => ({ scanId, flagId: f.id, weightApplied: Math.round(f.weight), evidence: f.evidence })));
+    if (v.flags.length) await tx.insert(scanFlags).values(v.flags.map((f) => ({ scanId, flagId: f.id, weightApplied: Math.round(f.weight), evidence: f.evidence, source: f.source })));
   }
 
   /** Records the mailbox action that was applied (or ruled out) for a scan, so it is never applied twice. */
@@ -180,6 +180,13 @@ export class Store {
   async aiSpentThisMonth(userId: string, now = new Date()): Promise<number> {
     const [r] = await this.db.select().from(aiUsage).where(and(eq(aiUsage.userId, userId), eq(aiUsage.month, now.toISOString().slice(0, 7))));
     return r?.costUsd ?? 0;
+  }
+  /** Combined spend of everyone in an org this month. */
+  async aiSpentThisMonthForOrg(orgId: string, now = new Date()): Promise<number> {
+    const [r] = await this.db.select({ total: sql<number>`coalesce(sum(${aiUsage.costUsd}), 0)` }).from(aiUsage)
+      .innerJoin(users, eq(users.id, aiUsage.userId))
+      .where(and(eq(users.orgId, orgId), eq(aiUsage.month, now.toISOString().slice(0, 7))));
+    return Number(r?.total ?? 0);
   }
   async aiCallsThisMonth(userId: string, now = new Date()): Promise<number> {
     const [r] = await this.db.select().from(aiUsage).where(and(eq(aiUsage.userId, userId), eq(aiUsage.month, now.toISOString().slice(0, 7))));

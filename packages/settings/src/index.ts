@@ -17,7 +17,17 @@ export const SettingsOverridesSchema = z.strictObject({
 }).partial();
 
 export type SettingsOverrides = z.infer<typeof SettingsOverridesSchema>;
-export interface OrgPolicy { values: SettingsOverrides; locked: string[] }
+
+/** Org policy may additionally cap the pooled AI spend of everyone in the org; users cannot set this. */
+export const OrgValuesSchema = SettingsOverridesSchema.extend({
+  ai: z.strictObject({
+    enabled: z.boolean(), mode: z.enum(["uncertain_only", "always"]), monthlyBudgetUsd: z.number().min(0).max(100000),
+    orgMonthlyBudgetUsd: z.number().min(0).max(1_000_000),
+  }).partial().optional(),
+});
+export type OrgValues = z.infer<typeof OrgValuesSchema>;
+export const OrgPolicySchema = z.object({ values: OrgValuesSchema, locked: z.array(z.string()) });
+export interface OrgPolicy { values: OrgValues; locked: string[] }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -39,11 +49,31 @@ function deepMerge(base: Record<string, unknown>, over: Record<string, unknown>)
   return out;
 }
 
+const hasPath = (obj: unknown, path: string[]): boolean => {
+  let cur: unknown = obj;
+  for (const seg of path) {
+    if (!isObj(cur) || !Object.hasOwn(cur, seg)) return false;
+    cur = cur[seg];
+  }
+  return true;
+};
+
+const deletePath = (obj: Record<string, unknown>, path: string[]): void => {
+  let cur: unknown = obj;
+  for (const seg of path.slice(0, -1)) {
+    if (!isObj(cur) || !Object.hasOwn(cur, seg)) return;
+    cur = cur[seg];
+  }
+  if (isObj(cur)) delete cur[path[path.length - 1]!];
+};
+
 export interface Resolved { settings: Settings; lockedFields: string[] }
 
 /** Built-in defaults, then org policy, then user overrides. Org-locked fields ignore the user layer. */
 export function resolveSettings(defaults: Settings, org: OrgPolicy, user: SettingsOverrides): Resolved {
-  const userEffective = Object.fromEntries(Object.entries(user).filter(([k]) => !org.locked.includes(k)));
+  // Locks may name a whole setting ("ai") or one field of it ("ai.monthlyBudgetUsd").
+  const userEffective = structuredClone(user) as Record<string, unknown>;
+  for (const l of org.locked) deletePath(userEffective, l.split("."));
   let merged = deepMerge(defaults as unknown as Record<string, unknown>, org.values as Record<string, unknown>);
   merged = deepMerge(merged, userEffective);
   return { settings: merged as unknown as Settings, lockedFields: [...org.locked] };
@@ -58,7 +88,7 @@ export type PatchResult =
 export function applyPatch(current: SettingsOverrides, patch: unknown, locked: string[]): PatchResult {
   if (!isObj(patch)) return { ok: false, error: "validation", message: "Patch must be a JSON object", fields: [] };
   if (hasDangerousKey(patch)) return { ok: false, error: "validation", message: "Patch contains a forbidden key", fields: [] };
-  const touchedLocked = Object.keys(patch).filter((k) => locked.includes(k));
+  const touchedLocked = locked.filter((l) => hasPath(patch, l.split(".")));
   if (touchedLocked.length) return { ok: false, error: "locked_field", fields: touchedLocked };
 
   const merged: Record<string, unknown> = structuredClone(current) as Record<string, unknown>;

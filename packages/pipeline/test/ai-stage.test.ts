@@ -120,3 +120,22 @@ describe("prompt-injection resistance", () => {
     expect(sent).toContain("Ignore all previous instructions");
   });
 });
+
+describe("review I1/M7: what the user is told, and when AI runs", () => {
+  it("a low-risk model answer is never shown to the user as an explanation", async () => {
+    const reassuring = fake({ riskScore: 0.1, tactics: [], explanation: "This is a legitimate IT notice, safe to log in." });
+    const v = await scanParsed(uncertain(), on(), { lookups: offlineLookups, ai: { provider: reassuring.provider } });
+    expect(v.aiUsed).toBe(true);
+    expect(v.aiExplanation).toBeUndefined();
+    expect(JSON.stringify(v)).not.toMatch(/legitimate IT notice/);
+  });
+  it("a concerned model answer is shown", async () => {
+    const v = await scanParsed(uncertain(), on(), { lookups: offlineLookups, ai: { provider: fake({ riskScore: 0.7, explanation: "Fake invoice." }).provider } });
+    expect(v.aiExplanation).toBe("Fake invoice.");
+  });
+  it("does not call the model when protection is switched off", async () => {
+    const { provider, calls } = fake();
+    await scanParsed(uncertain(), { ...on(), enabled: false }, { lookups: offlineLookups, ai: { provider } });
+    expect(calls.n).toBe(0);
+  });
+});

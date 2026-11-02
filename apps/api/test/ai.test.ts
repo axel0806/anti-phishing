@@ -140,3 +140,81 @@ describe("AI config", () => {
     expect(() => loadConfig({ ...good, AI_PROVIDER: "magic" })).toThrow(/AI_PROVIDER/);
   });
 });
+
+describe("review I3: server cap, org pool, nested locks", () => {
+  const capped = (maxUserBudgetUsd: number) => buildApp({
+    store, secret: SECRET, serverId: SID,
+    service: new ScanService({ store, mailFor: () => mailbox, ai: { provider, price: { inputPerMTokUsd: 1, outputPerMTokUsd: 5 }, maxUserBudgetUsd } }),
+  });
+  it("a user cannot raise their own budget above the server's cap", async () => {
+    const c = capped(1);
+    const u = await store.createUser({ email: "cap@example.com" });
+    const h = { authorization: tok(u) };
+    await c.inject({ method: "PATCH", url: "/v1/settings", payload: { ai: { enabled: true, monthlyBudgetUsd: 100000 } }, headers: h });
+    calls = 0;
+    const first = await c.inject({ method: "POST", url: "/v1/scan", payload: { providerMessageId: "m91" }, headers: h });
+    const second = await c.inject({ method: "POST", url: "/v1/scan", payload: { providerMessageId: "m92" }, headers: h });
+    expect(first.json().aiUsed).toBe(true);
+    expect(second.json().aiUsed).toBe(false);
+    expect(calls).toBe(1);
+    await c.close();
+  });
+  it("an org's pooled monthly budget stops everyone in it, even users with budget left", async () => {
+    const org = await store.createOrg("Pool Inc");
+    await store.setOrgPolicy(org.id, { values: { ai: { orgMonthlyBudgetUsd: 1 } }, locked: [] });
+    const a = await store.createUser({ email: "pool1@example.com", orgId: org.id });
+    const b = await store.createUser({ email: "pool2@example.com", orgId: org.id });
+    for (const u of [a, b]) await enable(u, { monthlyBudgetUsd: 50 });
+    calls = 0;
+    expect((await call(a, "POST", "/v1/scan", { providerMessageId: "m93" })).json().aiUsed).toBe(true);
+    expect((await call(b, "POST", "/v1/scan", { providerMessageId: "m94" })).json().aiUsed).toBe(false);
+    expect(calls).toBe(1);
+  });
+  it("a user cannot set the org pool themselves", async () => {
+    const u = await store.createUser({ email: "nopool@example.com" });
+    expect((await call(u, "PATCH", "/v1/settings", { ai: { orgMonthlyBudgetUsd: 1000000 } })).statusCode).toBe(422);
+  });
+  it("an org can lock just the budget field while users still switch AI on and off", async () => {
+    const org = await store.createOrg("Nested Co");
+    const admin = await store.createUser({ email: "admin@nested.example", orgId: org.id, role: "admin" });
+    const put = await call(admin, "PUT", `/v1/orgs/${org.id}/policy`, { values: { ai: { monthlyBudgetUsd: 2 } }, locked: ["ai.monthlyBudgetUsd"] });
+    expect(put.statusCode).toBe(200);
+    const u = await store.createUser({ email: "u@nested.example", orgId: org.id });
+    expect((await call(u, "PATCH", "/v1/settings", { ai: { enabled: true } })).statusCode).toBe(200);
+    const blocked = await call(u, "PATCH", "/v1/settings", { ai: { monthlyBudgetUsd: 99 } });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error.fields).toEqual(["ai.monthlyBudgetUsd"]);
+    expect((await call(u, "GET", "/v1/settings")).json().settings.ai).toMatchObject({ enabled: true, monthlyBudgetUsd: 2 });
+    expect((await call(admin, "PUT", `/v1/orgs/${org.id}/policy`, { values: {}, locked: ["bogus.field"] })).statusCode).toBe(422);
+  });
+});
+
+describe("review I6: the client can tell model output from rule evidence", () => {
+  it("stored and returned flags keep their source", async () => {
+    const u = await store.createUser({ email: "source@example.com" });
+    await enable(u, { monthlyBudgetUsd: 100 });
+    await call(u, "POST", "/v1/scan", { providerMessageId: "m95" });
+    const flags = (await call(u, "GET", "/v1/messages/m95/verdict")).json().flags as { id: string; source: string }[];
+    expect(Object.fromEntries(flags.map((f) => [f.id, f.source]))).toMatchObject({ reply_to_mismatch: "rule", urgency: "ai", ai_intent: "ai" });
+  });
+});
+
+describe("review I4/I3 config", () => {
+  const good = { SERVER_SECRET: "s".repeat(32), TOKEN_KEY: "ab".repeat(32) };
+  it("validates prices and requires them for non-local endpoints", () => {
+    expect(() => loadConfig({ ...good, AI_PROVIDER: "openai", AI_BASE_URL: "https://api.openai.com/v1", AI_MODEL: "m" })).toThrow(/AI_PRICE/);
+    expect(() => loadConfig({ ...good, AI_PROVIDER: "openai", AI_BASE_URL: "http://localhost:11434/v1", AI_MODEL: "m", AI_PRICE_IN_PER_MTOK: "1,5" })).toThrow(/AI_PRICE/);
+    expect(() => loadConfig({ ...good, AI_PROVIDER: "openai", AI_BASE_URL: "http://localhost:11434/v1", AI_MODEL: "m", AI_PRICE_OUT_PER_MTOK: "-1" })).toThrow(/AI_PRICE/);
+    for (const url of ["http://localhost:11434/v1", "http://127.0.0.1:8000/v1", "http://192.168.1.20:1234/v1", "http://10.0.0.5/v1", "http://ollama:11434/v1", "http://gpu.local:8000/v1"]) {
+      expect(() => loadConfig({ ...good, AI_PROVIDER: "openai", AI_BASE_URL: url, AI_MODEL: "m" }), url).not.toThrow();
+    }
+    expect(loadConfig({ ...good, AI_PROVIDER: "openai", AI_BASE_URL: "https://api.together.xyz/v1", AI_MODEL: "m", AI_PRICE_IN_PER_MTOK: "0.2", AI_PRICE_OUT_PER_MTOK: "0.6" }).ai)
+      .toMatchObject({ price: { inputPerMTokUsd: 0.2, outputPerMTokUsd: 0.6 } });
+  });
+  it("has a server-wide cap on any user's AI budget, default $20", () => {
+    const local = { ...good, AI_PROVIDER: "openai", AI_BASE_URL: "http://localhost:1/v1", AI_MODEL: "m" };
+    expect(loadConfig(local).ai!.maxUserBudgetUsd).toBe(20);
+    expect(loadConfig({ ...local, AI_MAX_USER_BUDGET_USD: "3.5" }).ai!.maxUserBudgetUsd).toBe(3.5);
+    expect(() => loadConfig({ ...local, AI_MAX_USER_BUDGET_USD: "-1" })).toThrow(/AI_MAX_USER_BUDGET_USD/);
+  });
+});

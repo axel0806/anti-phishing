@@ -1,7 +1,7 @@
 import { parseEmail } from "@ap/parser";
 import { checkLists, runDetectors, type DetectorContext } from "@ap/detectors";
 import { score } from "@ap/scoring";
-import { aiFlagsFrom, analyze, buildAiInput, shouldUseAi, type AiBudget, type AiCache, type AiProvider, type Price } from "@ap/ai";
+import { aiFlagsFrom, analyze, EXPLAIN_MIN_RISK, buildAiInput, shouldUseAi, type AiBudget, type AiCache, type AiProvider, type Price } from "@ap/ai";
 import type { ParsedEmail, Settings, Verdict } from "@ap/shared";
 
 /** Optional AI stage: judgment on intent and social engineering that rules cannot make. */
@@ -41,7 +41,7 @@ export async function scanParsed(email: ParsedEmail, settings: Settings, ctx: Sc
   const rulesOnly = score(flags, settings);
 
   const ai = ctx.ai;
-  if (!ai || !shouldUseAi(rulesOnly.score, settings)) return rulesOnly;
+  if (!ai || !settings.enabled || !shouldUseAi(rulesOnly.score, settings)) return rulesOnly;
 
   const result = await analyze(ai.provider, buildAiInput(email, flags), {
     timeoutMs: ai.timeoutMs ?? DEFAULT_AI_TIMEOUT_MS, cache: ai.cache, budget: ai.budget, price: ai.price,
@@ -50,8 +50,9 @@ export async function scanParsed(email: ParsedEmail, settings: Settings, ctx: Sc
     ai.onEvent?.({ reason: result.reason, message: result.message });
     return rulesOnly;
   }
-  const withAi = score([...flags, ...aiFlagsFrom(result.verdict)], settings, { aiUsed: true });
-  withAi.aiExplanation = result.verdict.explanation;
+  const withAi = score([...flags, ...aiFlagsFrom(result.verdict, settings)], settings, { aiUsed: true });
+  // Only a model that is itself concerned gets to speak to the user: an injected "this is safe" must not reassure anyone.
+  if (result.verdict.riskScore >= EXPLAIN_MIN_RISK) withAi.aiExplanation = result.verdict.explanation;
   return withAi;
 }
 

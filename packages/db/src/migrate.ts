@@ -94,6 +94,7 @@ create table ai_usage (
   primary key (user_id, month)
 );`,
   },
+  { id: "0004_flag_source", sql: "alter table scan_flags add column source text not null default 'rule'" },
 ];
 
 /** Arbitrary constant: every process that migrates takes the same lock, so API and worker can start together. */
