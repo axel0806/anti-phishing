@@ -34,3 +34,23 @@ Self-hosting with Docker (Postgres, API and worker): `docker compose -f deploy/d
 In the extension's settings page (Firefox: `about:addons` > the extension > Preferences) enter the server address and token. The extension asks for access to that server only, checks `GET /v1/health`, and clears the token if you switch to a different server. Admins can lock the address with the managed policy in `apps/extension/managed_schema.json`.
 
 The worker moves mail only for users who are not in shadow mode. New users should turn on `shadowMode` first (`PATCH /v1/settings {"shadowMode": true}`) and review the verdicts before enabling moves.
+
+## Phase 3: AI layer (optional, off by default)
+
+Rules run first. Only emails whose rule score is *uncertain* (20-80 points) go to a language model, which judges intent and social-engineering tactics the rules cannot see. The model can only **add** points (capped at 40) and can never move an email into Phishing on its own. Any failure (timeout after 2.5 s, error, bad output, budget used up) falls back to the exact rules-only verdict.
+
+Nothing is sent anywhere until you configure a provider on the server **and** a user turns AI on (`PATCH /v1/settings {"ai": {"enabled": true}}`; admins can lock it off for an org).
+
+```bash
+# Hosted (Anthropic): prices are needed so the per-user monthly budget works
+AI_PROVIDER=anthropic  ANTHROPIC_API_KEY=...  AI_PRICE_IN_PER_MTOK=...  AI_PRICE_OUT_PER_MTOK=...
+
+# Local / self-hosted (Ollama, LM Studio, vLLM...): mail data never leaves your network
+AI_PROVIDER=openai  AI_BASE_URL=http://localhost:11434/v1  AI_MODEL=llama3.1
+```
+
+Spend is bounded three ways: each user's own monthly budget, a server-wide ceiling on that budget (`AI_MAX_USER_BUDGET_USD`, default $20), and an optional pooled org budget (`ai.orgMonthlyBudgetUsd` in org policy). Admins can lock all of `ai` or a single field such as `ai.monthlyBudgetUsd`. Calls that time out are still charged at an estimate, because the provider may bill them.
+
+What the model sees: sender name and address, reply-to, subject, the body truncated to 4,000 characters, links reduced to their host (no paths, query strings or tokens, anywhere in the text), attachment names and types, and the rule flags already fired. Email addresses, phone numbers and long digit strings are redacted first. The email is wrapped in a randomly delimited data block, the system prompt tells the model it is untrusted, and the reply must match a strict schema.
+
+Measure it: `npm run corpus:ab` runs `corpus/uncertain` through rules-only and rules + AI and reports the recall and false-positive change (needs a provider configured in the environment). `corpus/injection` holds prompt-injection emails used in the tests.

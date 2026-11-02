@@ -2,6 +2,7 @@ import { connect, Store } from "@ap/db";
 import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
 import { loadDotEnv } from "./env.ts";
+import { aiProviderFromConfig } from "./aiProvider.ts";
 import { gmailProviderFactory } from "./mailer.ts";
 import { ScanService } from "./service.ts";
 import { runMaintenance, runWorkerPass } from "./worker.ts";
@@ -11,7 +12,11 @@ const cfg = loadConfig(process.env);
 const conn = await connect(cfg.databaseUrl, { dataDir: cfg.dataDir });
 const store = new Store(conn.db);
 const mailFor = cfg.google ? gmailProviderFactory({ ...cfg.google, tokenKey: cfg.tokenKey }) : () => null;
-const service = new ScanService({ store, mailFor });
+const service = new ScanService({
+  store, mailFor,
+  ai: cfg.ai ? { provider: aiProviderFromConfig(cfg.ai), timeoutMs: cfg.ai.timeoutMs, price: cfg.ai.price, maxUserBudgetUsd: cfg.ai.maxUserBudgetUsd, log: (m) => console.error(m) } : undefined,
+});
+if (cfg.ai) console.log(`AI layer available: ${cfg.ai.kind}/${cfg.ai.model} (off for each user until they enable it)`);
 
 if (cfg.role !== "worker") {
   const app = buildApp({ store, service, serverId: cfg.serverId, secret: cfg.secret });

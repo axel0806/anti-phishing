@@ -35,3 +35,17 @@ describe("score", () => {
     expect(score(flags, { ...DEFAULT_SETTINGS, sensitivity: "custom", thresholds: { suspicious: 90, phishing: 99 } }).verdict).toBe("safe");
   });
 });
+
+describe("review I5: rule flags win over AI duplicates of the same id", () => {
+  it("keeps the rule flag (and its evidence) even when the AI copy weighs more, and keeps the verdict floor", () => {
+    const s = { ...DEFAULT_SETTINGS, sensitivity: "custom" as const, thresholds: { suspicious: 10, phishing: 30 } };
+    const rule = { id: "credential_request", category: "content", weight: 5, evidence: "rule evidence", source: "rule" } as Flag;
+    const ai = { id: "credential_request", category: "content", weight: 25, evidence: "ai evidence", source: "ai" } as Flag;
+    const v = score([ai, rule], s);
+    expect(v.flags).toHaveLength(1);
+    expect(v.flags[0]).toMatchObject({ source: "rule", evidence: "rule evidence", weight: 5 });
+    const extra = { id: "ai_intent", category: "ai", weight: 40, evidence: "x", source: "ai" } as Flag;
+    expect(score([ai, rule, extra], s).score).toBe(45);
+    expect(score([ai, rule, extra], s).verdict).toBe("phishing"); // a positive rule flag still agrees
+  });
+});

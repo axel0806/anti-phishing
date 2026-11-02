@@ -1,0 +1,9 @@
+Authentication-Results: mx.google.com; spf=pass; dkim=pass; dmarc=pass
+From: "Chess Club" <news@chessclub.example>
+Reply-To: secretary@gmail.com
+To: me@example.com
+Subject: March meetup
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<p>Our next meetup is on Thursday at the library. Details and the schedule: <a href="http://bit.ly/chess-march">http://bit.ly/chess-march</a></p>

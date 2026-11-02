@@ -1,5 +1,17 @@
 import { createHash } from "node:crypto";
 
+export interface AiConfig {
+  kind: "anthropic" | "openai";
+  apiKey?: string;
+  model: string;
+  baseUrl?: string;
+  timeoutMs: number;
+  /** Hard ceiling on any one user's monthly AI budget, whatever they set for themselves. */
+  maxUserBudgetUsd: number;
+  /** USD per million tokens, for budget accounting. Local models cost nothing. */
+  price: { inputPerMTokUsd: number; outputPerMTokUsd: number };
+}
+
 export interface Config {
   port: number;
   role: "api" | "worker" | "all";
@@ -11,9 +23,22 @@ export interface Config {
   google: { clientId: string; clientSecret: string } | null;
   dataDir: string;
   retentionDays: number;
+  /** null = the server offers no AI layer at all, whatever users enable. */
+  ai: AiConfig | null;
 }
 
 type Env = Record<string, string | undefined>;
+
+/** Loopback, private-range, .local and single-label hosts: model servers on your own network, which cost nothing per call. */
+export function isLocalEndpoint(url: string): boolean {
+  let h: string;
+  try { h = new URL(url).hostname.toLowerCase(); } catch { return false; }
+  if (h === "localhost" || h === "[::1]" || h.endsWith(".local") || !h.includes(".")) return true;
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h);
+  if (!m) return false;
+  const a = Number(m[1]), b = Number(m[2]);
+  return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
+}
 
 /** Reads and validates environment configuration; throws one error listing every problem. */
 export function loadConfig(env: Env): Config {
@@ -30,12 +55,38 @@ export function loadConfig(env: Env): Config {
   if (!Number.isFinite(pollSeconds) || pollSeconds < 5) problems.push("POLL_SECONDS must be at least 5");
   const retentionDays = env.RETENTION_DAYS === undefined ? 90 : Number(env.RETENTION_DAYS);
   if (!Number.isInteger(retentionDays) || retentionDays < 1) problems.push("RETENTION_DAYS must be a whole number of at least 1");
+  let ai: AiConfig | null = null;
+  const kind = env.AI_PROVIDER ?? "none";
+  if (kind !== "none") {
+    const timeoutMs = env.AI_TIMEOUT_MS === undefined ? 2500 : Number(env.AI_TIMEOUT_MS);
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 100) problems.push("AI_TIMEOUT_MS must be at least 100");
+    const maxUserBudgetUsd = env.AI_MAX_USER_BUDGET_USD === undefined ? 20 : Number(env.AI_MAX_USER_BUDGET_USD);
+    if (!Number.isFinite(maxUserBudgetUsd) || maxUserBudgetUsd < 0) problems.push("AI_MAX_USER_BUDGET_USD must be a number of at least 0");
+    if (kind === "anthropic") {
+      if (!env.ANTHROPIC_API_KEY) problems.push("ANTHROPIC_API_KEY is required when AI_PROVIDER=anthropic");
+      const pin = Number(env.AI_PRICE_IN_PER_MTOK), pout = Number(env.AI_PRICE_OUT_PER_MTOK);
+      if (env.AI_PRICE_IN_PER_MTOK === undefined || env.AI_PRICE_OUT_PER_MTOK === undefined || !(pin >= 0) || !(pout >= 0)) {
+        problems.push("AI_PRICE_IN_PER_MTOK and AI_PRICE_OUT_PER_MTOK (USD per million tokens) are required so budgets work");
+      }
+      ai = { kind, apiKey: env.ANTHROPIC_API_KEY, model: env.AI_MODEL ?? "claude-haiku-5-5", timeoutMs, maxUserBudgetUsd, price: { inputPerMTokUsd: pin, outputPerMTokUsd: pout } };
+    } else if (kind === "openai") {
+      if (!env.AI_BASE_URL) problems.push("AI_BASE_URL is required when AI_PROVIDER=openai (e.g. http://localhost:11434/v1)");
+      if (!env.AI_MODEL) problems.push("AI_MODEL is required when AI_PROVIDER=openai");
+      // Hosted OpenAI-compatible endpoints bill per token, so budgets need real prices; servers on your own network cost nothing.
+      const local = isLocalEndpoint(env.AI_BASE_URL ?? "");
+      const priced = env.AI_PRICE_IN_PER_MTOK !== undefined || env.AI_PRICE_OUT_PER_MTOK !== undefined;
+      const pin = Number(env.AI_PRICE_IN_PER_MTOK ?? 0), pout = Number(env.AI_PRICE_OUT_PER_MTOK ?? 0);
+      if (!(pin >= 0) || !(pout >= 0)) problems.push("AI_PRICE_IN_PER_MTOK / AI_PRICE_OUT_PER_MTOK must be numbers of at least 0 (use a dot, not a comma)");
+      else if (!local && !priced) problems.push("AI_PRICE_IN_PER_MTOK and AI_PRICE_OUT_PER_MTOK are required for a non-local AI_BASE_URL so budgets work");
+      ai = { kind, apiKey: env.AI_API_KEY || undefined, model: env.AI_MODEL ?? "", baseUrl: env.AI_BASE_URL, timeoutMs, maxUserBudgetUsd, price: { inputPerMTokUsd: pin, outputPerMTokUsd: pout } };
+    } else problems.push("AI_PROVIDER must be none, anthropic or openai");
+  }
   if (problems.length) throw new Error("Invalid configuration:\n- " + problems.join("\n- "));
 
   const clientId = env.GOOGLE_CLIENT_ID ?? env.CLIENT_ID;
   const clientSecret = env.GOOGLE_CLIENT_SECRET ?? env.CLIENT_SECRET;
   return {
-    port, role, pollSeconds, secret, tokenKey, retentionDays,
+    port, role, pollSeconds, secret, tokenKey, retentionDays, ai,
     databaseUrl: env.DATABASE_URL || undefined,
     // Derived, not secret: lets clients tell servers apart and scopes session tokens to this one.
     serverId: env.SERVER_ID || createHash("sha256").update("server-id:" + secret).digest("hex").slice(0, 16),

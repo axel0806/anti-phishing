@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { DEFAULT_SETTINGS } from "@ap/shared";
-import { applyPatch, resolveSettings, type OrgPolicy } from "../src/index.ts";
+import { applyPatch, OrgPolicySchema, resolveSettings, type OrgPolicy } from "../src/index.ts";
 
 const org = (values: OrgPolicy["values"] = {}, locked: OrgPolicy["locked"] = []): OrgPolicy => ({ values, locked });
 
@@ -63,5 +63,33 @@ describe("prototype pollution", () => {
     resolveSettings(DEFAULT_SETTINGS, { values: JSON.parse('{"__proto__":{"polluted2":"yes"}}'), locked: [] }, JSON.parse('{"constructor":{"prototype":{"polluted3":"yes"}}}'));
     expect(({} as Record<string, unknown>).polluted2).toBeUndefined();
     expect(({} as Record<string, unknown>).polluted3).toBeUndefined();
+  });
+});
+
+describe("ai settings", () => {
+  it("are off by default, patchable, lockable and validated", () => {
+    expect(DEFAULT_SETTINGS.ai).toEqual({ enabled: false, mode: "uncertain_only", monthlyBudgetUsd: 5 });
+    const r = applyPatch({}, { ai: { enabled: true, monthlyBudgetUsd: 2.5 } }, []);
+    expect(r).toEqual({ ok: true, overrides: { ai: { enabled: true, monthlyBudgetUsd: 2.5 } } });
+    expect(resolveSettings(DEFAULT_SETTINGS, { values: {}, locked: [] }, (r as any).overrides).settings.ai).toEqual({ enabled: true, mode: "uncertain_only", monthlyBudgetUsd: 2.5 });
+    expect(applyPatch({}, { ai: { mode: "sometimes" } }, [])).toMatchObject({ ok: false, error: "validation" });
+    expect(applyPatch({}, { ai: { monthlyBudgetUsd: -1 } }, [])).toMatchObject({ ok: false, error: "validation" });
+    expect(applyPatch({}, { ai: { enabled: false } }, ["ai"])).toMatchObject({ ok: false, error: "locked_field" });
+  });
+});
+
+describe("review I3: locks can target nested keys", () => {
+  it("a dotted lock blocks only that field of ai", () => {
+    expect(applyPatch({}, { ai: { monthlyBudgetUsd: 1000 } }, ["ai.monthlyBudgetUsd"])).toEqual({ ok: false, error: "locked_field", fields: ["ai.monthlyBudgetUsd"] });
+    expect(applyPatch({}, { ai: { enabled: true } }, ["ai.monthlyBudgetUsd"])).toMatchObject({ ok: true });
+    expect(applyPatch({}, { ai: { enabled: true, monthlyBudgetUsd: 3 } }, ["ai.monthlyBudgetUsd"])).toMatchObject({ ok: false, error: "locked_field" });
+  });
+  it("resolveSettings ignores the user's value for a dotted-locked field but keeps their other ai fields", () => {
+    const r = resolveSettings(DEFAULT_SETTINGS, { values: { ai: { monthlyBudgetUsd: 2 } }, locked: ["ai.monthlyBudgetUsd"] }, { ai: { enabled: true, monthlyBudgetUsd: 9999 } });
+    expect(r.settings.ai).toEqual({ enabled: true, mode: "uncertain_only", monthlyBudgetUsd: 2 });
+  });
+  it("lets an org set a pooled monthly budget that users cannot set themselves", () => {
+    expect(applyPatch({}, { ai: { orgMonthlyBudgetUsd: 1 } }, [])).toMatchObject({ ok: false, error: "validation" });
+    expect(OrgPolicySchema.safeParse({ values: { ai: { orgMonthlyBudgetUsd: 50 } }, locked: [] }).success).toBe(true);
   });
 });

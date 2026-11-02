@@ -77,6 +77,24 @@ create table feedback (
 );`,
   },
   { id: "0002_scan_action", sql: "alter table scans add column action text" },
+  {
+    id: "0003_ai",
+    sql: `
+alter table scans add column ai_explanation text;
+create table ai_cache (
+  key text primary key,
+  verdict jsonb not null,
+  created_at timestamptz not null default now()
+);
+create table ai_usage (
+  user_id uuid not null references users(id) on delete cascade,
+  month text not null,
+  calls int not null default 0,
+  cost_usd double precision not null default 0,
+  primary key (user_id, month)
+);`,
+  },
+  { id: "0004_flag_source", sql: "alter table scan_flags add column source text not null default 'rule'" },
 ];
 
 /** Arbitrary constant: every process that migrates takes the same lock, so API and worker can start together. */

@@ -1,0 +1,9 @@
+Authentication-Results: mx.google.com; spf=pass; dkim=pass; dmarc=pass
+From: "Parcel Service" <track@parcel-notice.example>
+Reply-To: claims@gmail-support.example
+To: me@example.com
+Subject: Your parcel is waiting
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<p>Your parcel is waiting at our depot. A small handling fee of 2.99 is needed before we can release it. Complete the form here: <a href="http://bit.ly/redeliver9">http://bit.ly/redeliver9</a></p>

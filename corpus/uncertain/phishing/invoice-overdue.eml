@@ -1,0 +1,9 @@
+Authentication-Results: mx.google.com; spf=pass; dkim=pass; dmarc=pass
+From: "Accounts Team" <accounts@invoices-portal.example>
+Reply-To: pay@other-mail.example
+To: me@example.com
+Subject: Invoice 4471
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<p>Our records show invoice 4471 is outstanding. Our account number has changed, so please pay the full amount to the new account listed here: <a href="http://tinyurl.com/inv4471">http://tinyurl.com/inv4471</a></p>

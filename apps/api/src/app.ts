@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
-import { applyPatch, hasDangerousKey, SettingsOverridesSchema } from "@ap/settings";
+import { applyPatch, hasDangerousKey, OrgValuesSchema, SettingsOverridesSchema } from "@ap/settings";
 import { ListEntrySchema } from "@ap/shared";
 import type { Store, User } from "@ap/db";
 import { signToken, verifyToken } from "./auth.ts";
@@ -30,7 +30,7 @@ function fail(reply: FastifyReply, code: Code, message: string, fields?: string[
 
 const ScanBody = z.object({ providerMessageId: z.string().min(1).max(200), mode: z.enum(["dry_run", "act"]).optional(), rescan: z.boolean().optional() });
 const FeedbackBody = z.object({ label: z.enum(["not_phishing", "phishing"]), updateList: z.boolean().optional() });
-const PolicyBody = z.object({ values: SettingsOverridesSchema, locked: z.array(z.string()) });
+const PolicyBody = z.object({ values: OrgValuesSchema, locked: z.array(z.string().max(100)).max(100) });
 const KindParam = z.enum(["allow", "block"]);
 const ListBody = ListEntrySchema.extend({ scope: z.enum(["user", "org"]).optional() });
 const SETTINGS_KEYS = new Set(Object.keys(SettingsOverridesSchema.shape));
@@ -93,7 +93,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       if (!(await adminOf(req, reply, req.params.id))) return;
       const body = PolicyBody.safeParse(req.body);
       if (!body.success) return fail(reply, "validation", body.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
-      const unknown = body.data.locked.filter((k) => !SETTINGS_KEYS.has(k));
+      // A lock names a setting ("ai") or one field of it ("ai.monthlyBudgetUsd"); the setting must exist.
+      const unknown = body.data.locked.filter((k) => !SETTINGS_KEYS.has(k.split(".")[0]!));
       if (unknown.length) return fail(reply, "validation", "Unknown settings keys in locked", unknown);
       await store.setOrgPolicy(req.params.id, body.data);
       return body.data;
@@ -155,7 +156,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
     priv.get<{ Querystring: { days?: string } }>("/v1/me/stats", async (req) => {
       const days = Math.min(365, Math.max(1, Number(req.query.days) || 7));
-      return { days, ...(await store.statsFor(req.user!.id, days)) };
+      const id = req.user!.id;
+      return { days, ...(await store.statsFor(id, days)), aiCalls: await store.aiCallsThisMonth(id), aiSpentUsd: await store.aiSpentThisMonth(id) };
     });
   });
 

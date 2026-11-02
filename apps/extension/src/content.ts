@@ -19,6 +19,12 @@ function render(m: BannerModel): HTMLElement {
     for (const r of m.reasons) { const li = document.createElement("li"); li.textContent = r; ul.append(li); }
     box.append(ul);
   }
+  if (m.explanation) {
+    const ex = document.createElement("div");
+    ex.style.cssText = "margin-top:8px;font-style:italic";
+    ex.textContent = "AI assessment: " + m.explanation; // textContent only: model output can echo email content
+    box.append(ex);
+  }
   if (m.note) { const n = document.createElement("div"); n.style.cssText = "margin-top:6px;font-size:12px;color:#555"; n.textContent = m.note; box.append(n); }
   return box;
 }

@@ -61,6 +61,8 @@ export interface Settings {
   allowlist: ListEntry[];
   blocklist: ListEntry[];
   shadowMode: boolean;
+  /** `orgMonthlyBudgetUsd` can only come from org policy: it caps the combined spend of everyone in the org. */
+  ai: { enabled: boolean; mode: "uncertain_only" | "always"; monthlyBudgetUsd: number; orgMonthlyBudgetUsd?: number };
 }
 
 export const ListEntrySchema = z.object({ matchType: z.enum(["address", "domain"]), value: z.string().min(1) });
@@ -77,6 +79,8 @@ export const DEFAULT_SETTINGS: Settings = {
   flags: {}, categoryMultipliers: {},
   protectedDomains: ["paypal.com", "microsoft.com", "google.com", "apple.com", "amazon.com"],
   allowlist: [], blocklist: [], shadowMode: false,
+  // Off by default: nothing leaves the server until a user or admin opts in.
+  ai: { enabled: false, mode: "uncertain_only", monthlyBudgetUsd: 5 },
 };
 
 export interface Verdict {
@@ -84,6 +88,8 @@ export interface Verdict {
   flags: Flag[]; aiUsed: boolean; settingsVersion: number;
   /** Set when no flags explain the verdict (list hits). */
   reason?: string;
+  /** Plain-language explanation from the AI layer, shown to the user. */
+  aiExplanation?: string;
 }
 
 export function makeFlag(id: FlagId, evidence: string, settings?: Settings): Flag | null {

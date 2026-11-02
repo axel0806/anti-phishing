@@ -36,5 +36,6 @@ export async function runWorkerPass(
 
 /** Nightly housekeeping: enforce data retention. */
 export async function runMaintenance(store: Store, retentionDays: number): Promise<{ purged: number }> {
+  await store.purgeAiCacheOlderThan(Math.min(30, retentionDays)); // cached answers derive from mail, so they never outlive it
   return { purged: await store.purgeScansOlderThan(retentionDays) };
 }
