@@ -5,7 +5,7 @@ import { Oidc } from "./oidc.ts";
 import { loadDotEnv } from "./env.ts";
 import { aiProviderFromConfig } from "./aiProvider.ts";
 import { createLookups } from "./lookups.ts";
-import { gmailProviderFactory } from "./mailer.ts";
+import { mailProviderFactory } from "./mailer.ts";
 import { Metrics } from "./metrics.ts";
 import { ScanService } from "./service.ts";
 import { runMaintenance, runWorkerPass } from "./worker.ts";
@@ -16,7 +16,14 @@ const conn = await connect(cfg.databaseUrl, { dataDir: cfg.dataDir });
 const store = new Store(conn.db);
 const admin = new AdminQueries(conn.db);
 const metrics = new Metrics();
-const mailFor = cfg.google ? gmailProviderFactory({ ...cfg.google, tokenKey: cfg.tokenKey }) : () => null;
+const mailFor = cfg.google || cfg.microsoft
+  ? mailProviderFactory({
+      google: cfg.google, microsoft: cfg.microsoft, tokenKey: cfg.tokenKey,
+      persist: (userId, blob) => store.setEncryptedTokens(userId, blob).catch((e) => console.error("could not save refreshed token:", (e as Error).message)),
+      // A revoked link would otherwise fail on every pass forever: unlink it so the user can reconnect.
+      onRevoked: (userId) => { console.error(`mailbox access was revoked for user ${userId}; unlinking`); void store.setEncryptedTokens(userId, null); },
+    })
+  : () => null;
 const service = new ScanService({
   store, mailFor, metrics,
   lookups: createLookups({ ...cfg.lookups, log: (m) => console.error(m) }),

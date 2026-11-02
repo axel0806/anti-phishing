@@ -51,6 +51,9 @@ export class Store {
     await this.db.update(users).set({ settingsOverrides: overrides }).where(eq(users.id, userId));
   }
 
+  async setUserRole(userId: string, role: Role): Promise<void> {
+    await this.db.update(users).set({ role }).where(eq(users.id, userId));
+  }
   async setEncryptedTokens(userId: string, blob: string | null): Promise<void> {
     await this.db.update(users).set({ encryptedTokens: blob }).where(eq(users.id, userId));
   }

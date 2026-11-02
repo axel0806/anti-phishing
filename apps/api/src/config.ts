@@ -29,6 +29,8 @@ export interface Config {
   serverId: string;
   pollSeconds: number;
   google: { clientId: string; clientSecret: string } | null;
+  /** Outlook / Microsoft 365. A client secret is optional (public-client registrations have none). */
+  microsoft: { clientId: string; clientSecret: string | undefined; tenant: string } | null;
   dataDir: string;
   /** Lets a Prometheus server on another host read /metrics. Loopback callers never need it. */
   metricsToken: string | undefined;
@@ -111,6 +113,11 @@ export function loadConfig(env: Env): Config {
       };
     }
   }
+  // The tenant is spliced into a login URL, so only a tenant GUID, a domain name or a well-known alias is accepted.
+  const tenant = env.MICROSOFT_TENANT ?? "common";
+  if (env.MICROSOFT_CLIENT_ID && !/^(?:common|organizations|consumers|[0-9a-fA-F-]{36}|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)$/.test(tenant)) {
+    problems.push("MICROSOFT_TENANT must be a tenant ID, a domain name, or common/organizations/consumers");
+  }
   if (problems.length) throw new Error("Invalid configuration:\n- " + problems.join("\n- "));
 
   const clientId = env.GOOGLE_CLIENT_ID ?? env.CLIENT_ID;
@@ -122,6 +129,7 @@ export function loadConfig(env: Env): Config {
     // Derived, not secret: lets clients tell servers apart and scopes session tokens to this one.
     serverId: env.SERVER_ID || createHash("sha256").update("server-id:" + secret).digest("hex").slice(0, 16),
     google: clientId && clientSecret ? { clientId, clientSecret } : null,
+    microsoft: env.MICROSOFT_CLIENT_ID ? { clientId: env.MICROSOFT_CLIENT_ID, clientSecret: env.MICROSOFT_CLIENT_SECRET || undefined, tenant } : null,
     dataDir: env.DATA_DIR ?? ".data",
     metricsToken: env.METRICS_TOKEN || undefined,
   };
