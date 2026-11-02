@@ -1,0 +1,8 @@
+Authentication-Results: mx.example.net; spf=pass; dkim=pass; dmarc=pass
+From: "Shop News" <news@shop.example>
+To: me@example.com
+Subject: Final notice: sale ends today, act immediately
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<p>Dear customer, <a href="https://shop.example/sale">https://shop.example/sale</a></p>
