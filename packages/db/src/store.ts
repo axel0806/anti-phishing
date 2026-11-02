@@ -75,6 +75,13 @@ export class Store {
     )).returning({ id: listEntries.id });
     return r.length > 0;
   }
+  /** Entries owned by exactly one user or org (no merging), for management screens. */
+  async listOwn(ownerId: string): Promise<Lists> {
+    const rows = await this.db.select().from(listEntries).where(eq(listEntries.ownerId, ownerId));
+    const out: Lists = { allow: [], block: [] };
+    for (const r of rows) (r.kind === "allow" ? out.allow : out.block).push({ matchType: r.matchType as ListEntry["matchType"], value: r.value });
+    return out;
+  }
   /** The user's own entries plus their org's. */
   async listsFor(user: Pick<User, "id" | "orgId">): Promise<Lists> {
     const owners = user.orgId ? [user.id, user.orgId] : [user.id];

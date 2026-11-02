@@ -7,6 +7,7 @@ import { signToken, verifyToken } from "./auth.ts";
 import { registerAdminRoutes } from "./adminRoutes.ts";
 import { Oidc, OidcError } from "./oidc.ts";
 import { fail } from "./errors.ts";
+import { registerSites, type Sites } from "./sites.ts";
 import type { Metrics } from "./metrics.ts";
 import { MailUnavailable, ScanInProgress, type ScanService } from "./service.ts";
 
@@ -22,6 +23,8 @@ export interface AppDeps {
   metrics?: Metrics;
   /** Single sign-on for the admin dashboard. */
   oidc?: Oidc;
+  /** Built front-ends to host: the admin dashboard at /admin/ and the Outlook add-in at /addin/. */
+  sites?: Sites;
   /** Bearer token for /metrics from non-loopback hosts. Without it, only loopback callers may read metrics. */
   metricsToken?: string;
 }
@@ -91,6 +94,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
   }
 
+  if (deps.sites) registerSites(app, deps.sites);
+
   app.get("/v1/health", async () => ({ version: API_VERSION, serverId, apiVersions: ["v1"] }));
 
   app.get("/metrics", async (req, reply) => {
@@ -113,6 +118,22 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
 
     if (admin) registerAdminRoutes(priv, { store, admin, service });
+
+    priv.get("/v1/me", async (req) => {
+      const u = req.user!;
+      return { id: u.id, email: u.email, role: u.role, orgId: u.orgId, provider: u.provider };
+    });
+
+    priv.get<{ Querystring: { scope?: string } }>("/v1/lists", async (req, reply) => {
+      const scope = z.enum(["user", "org"]).default("user").safeParse(req.query.scope);
+      if (!scope.success) return fail(reply, "validation", "scope must be user or org");
+      const u = req.user!;
+      if (scope.data === "org") {
+        if (u.role !== "admin" || !u.orgId) return fail(reply, "forbidden", "Only an org admin can read org lists");
+        return store.listOwn(u.orgId);
+      }
+      return store.listOwn(u.id);
+    });
 
     priv.get("/v1/settings", async (req) => {
       const e = await service.effectiveSettings(req.user!);

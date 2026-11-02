@@ -1,5 +1,7 @@
 import { AdminQueries, connect, Store } from "@ap/db";
 import { buildApp } from "./app.ts";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { loadConfig } from "./config.ts";
 import { Oidc } from "./oidc.ts";
 import { loadDotEnv } from "./env.ts";
@@ -31,8 +33,16 @@ const service = new ScanService({
 });
 if (cfg.ai) console.log(`AI layer available: ${cfg.ai.kind}/${cfg.ai.model} (off for each user until they enable it)`);
 
+/** The dashboard and add-in are built into dist folders (npm run build:ui); serve whichever exist. */
+function builtSites() {
+  const dir = (p: string) => (existsSync(resolve(p)) ? resolve(p) : undefined);
+  const sites = { admin: dir("apps/dashboard/dist"), addin: dir("apps/outlook-addin/dist") };
+  if (!sites.admin) console.log("Dashboard not built (run: npm run build:ui); /admin/ will be unavailable.");
+  return sites;
+}
+
 if (cfg.role !== "worker") {
-  const app = buildApp({ store, service, admin, metrics, oidc: cfg.oidc ? new Oidc({ ...cfg.oidc, secret: cfg.secret }) : undefined, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
+  const app = buildApp({ store, service, admin, metrics, sites: builtSites(), oidc: cfg.oidc ? new Oidc({ ...cfg.oidc, secret: cfg.secret }) : undefined, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
   await app.listen({ port: cfg.port, host: "0.0.0.0" });
   console.log(`API listening on :${cfg.port} (server id ${cfg.serverId})`);
 }

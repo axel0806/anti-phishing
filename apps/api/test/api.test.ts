@@ -265,3 +265,22 @@ describe("rescan", () => {
     expect((await call(u, "POST", "/v1/rescan", { days: 9999 })).statusCode).toBe(422);
   });
 });
+
+describe("who am I, and reading lists", () => {
+  it("/v1/me reports the caller's identity and role", async () => {
+    const org = await store.createOrg("MeCo");
+    const u = await store.createUser({ email: "Me@MeCo.example", orgId: org.id, role: "analyst" });
+    expect((await call(u, "GET", "/v1/me")).json()).toEqual({ id: u.id, email: "me@meco.example", role: "analyst", orgId: org.id, provider: "gmail" });
+  });
+  it("lists a user's own entries, and org entries only for an org admin", async () => {
+    const org = await store.createOrg("ListRead");
+    const admin = await store.createUser({ email: "ladmin@lr.example", orgId: org.id, role: "admin" });
+    const member = await store.createUser({ email: "lmember@lr.example", orgId: org.id });
+    await call(member, "POST", "/v1/lists/allow", { matchType: "domain", value: "Friends.com" });
+    await call(admin, "POST", "/v1/lists/block", { matchType: "domain", value: "evil.example", scope: "org" });
+    expect((await call(member, "GET", "/v1/lists")).json()).toEqual({ allow: [{ matchType: "domain", value: "friends.com" }], block: [] });
+    expect((await call(admin, "GET", "/v1/lists?scope=org")).json()).toEqual({ allow: [], block: [{ matchType: "domain", value: "evil.example" }] });
+    expect((await call(member, "GET", "/v1/lists?scope=org")).statusCode).toBe(403);
+    expect((await call(member, "GET", "/v1/lists?scope=nonsense")).statusCode).toBe(422);
+  });
+});
