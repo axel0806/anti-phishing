@@ -23,6 +23,8 @@ export interface Config {
   google: { clientId: string; clientSecret: string } | null;
   dataDir: string;
   retentionDays: number;
+  /** Network lookups used by the detectors. Both are opt-in because they send data (a domain name / a URL path) to a third party. */
+  lookups: { rdap: boolean; safeBrowsingKey: string | undefined };
   /** null = the server offers no AI layer at all, whatever users enable. */
   ai: AiConfig | null;
 }
@@ -87,6 +89,7 @@ export function loadConfig(env: Env): Config {
   const clientSecret = env.GOOGLE_CLIENT_SECRET ?? env.CLIENT_SECRET;
   return {
     port, role, pollSeconds, secret, tokenKey, retentionDays, ai,
+    lookups: { rdap: env.RDAP_LOOKUPS === "true", safeBrowsingKey: env.SAFE_BROWSING_API_KEY || undefined },
     databaseUrl: env.DATABASE_URL || undefined,
     // Derived, not secret: lets clients tell servers apart and scopes session tokens to this one.
     serverId: env.SERVER_ID || createHash("sha256").update("server-id:" + secret).digest("hex").slice(0, 16),

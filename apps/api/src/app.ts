@@ -134,6 +134,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       }
     });
 
+    priv.post("/v1/rescan", async (req, reply) => {
+      const body = z.object({ days: z.number().int().min(1).max(30).default(7) }).safeParse(req.body ?? {});
+      if (!body.success) return fail(reply, "validation", "days must be a whole number from 1 to 30");
+      return service.rescanRecent(req.user!, body.data.days);
+    });
+
     priv.get<{ Params: { id: string } }>("/v1/messages/:id/verdict", async (req, reply) => {
       if (!SAFE_ID.test(req.params.id)) return fail(reply, "validation", "Bad message id");
       const s = await store.getScan(req.user!.id, req.params.id);

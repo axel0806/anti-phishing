@@ -7,6 +7,8 @@ import {
 export interface DetectorContext {
   settings: Settings;
   senderHistory?: SenderHistory;
+  /** How many distinct senders the user has history for. `first_time_sender` stays off until this reaches 50. */
+  historySize?: number;
   lookups: { domainAgeDays(d: string): Promise<number | null>; threatIntel(url: string): Promise<boolean> };
 }
 export type Detector = (email: ParsedEmail, ctx: DetectorContext) => Flag[] | Promise<Flag[]>;
@@ -208,6 +210,10 @@ const content: Detector = (e, ctx) => {
   return compact(out);
 };
 
+const MIN_HISTORY_FOR_FIRST_TIME = 50;
+const firstTime: Detector = (_e, ctx) =>
+  !ctx.senderHistory && (ctx.historySize ?? 0) >= MIN_HISTORY_FOR_FIRST_TIME ? compact([fl(ctx, "first_time_sender", "First email ever from this sender")]) : [];
+
 const trust: Detector = (_e, ctx) => {
   const h = ctx.senderHistory;
   return h && h.userReplied && h.messagesReceived >= 2 ? compact([fl(ctx, "trusted_contact", "Prior two-way history")]) : [];
@@ -218,7 +224,7 @@ const CONTENT_IDS = new Set<FlagId>(["urgency", "credential_request", "generic_g
 /** Runs every enabled detector. Content flags fire only when another positive non-content flag also fired. */
 export async function runDetectors(email: ParsedEmail, ctx: DetectorContext): Promise<Flag[]> {
   const results = await Promise.all(
-    [authentication, lookalike, displayName, replyTo, links, newDomain, attachments, content, trust].map(async (d) => d(email, ctx)),
+    [authentication, lookalike, displayName, replyTo, links, newDomain, attachments, content, trust, firstTime].map(async (d) => d(email, ctx)),
   );
   const all = results.flat();
   // Per the plan, content flags need a sender or link signal; missing DKIM etc. alone is too common to unlock them.

@@ -79,3 +79,14 @@ describe("checkLists", () => {
     expect(checkLists(base(), s)).toBeNull();
   });
 });
+
+describe("first_time_sender", () => {
+  it("fires only once the user has enough history to make 'new' meaningful", async () => {
+    const withSize = (n: number | undefined, history?: { messagesReceived: number; userReplied: boolean }) =>
+      ids(base(), { ...ctx, historySize: n, senderHistory: history });
+    expect(await withSize(60)).toContain("first_time_sender");
+    expect(await withSize(49)).not.toContain("first_time_sender");
+    expect(await withSize(undefined)).not.toContain("first_time_sender");
+    expect(await withSize(60, { messagesReceived: 3, userReplied: false })).not.toContain("first_time_sender");
+  });
+});

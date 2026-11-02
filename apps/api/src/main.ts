@@ -3,6 +3,7 @@ import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
 import { loadDotEnv } from "./env.ts";
 import { aiProviderFromConfig } from "./aiProvider.ts";
+import { createLookups } from "./lookups.ts";
 import { gmailProviderFactory } from "./mailer.ts";
 import { ScanService } from "./service.ts";
 import { runMaintenance, runWorkerPass } from "./worker.ts";
@@ -14,6 +15,7 @@ const store = new Store(conn.db);
 const mailFor = cfg.google ? gmailProviderFactory({ ...cfg.google, tokenKey: cfg.tokenKey }) : () => null;
 const service = new ScanService({
   store, mailFor,
+  lookups: createLookups({ ...cfg.lookups, log: (m) => console.error(m) }),
   ai: cfg.ai ? { provider: aiProviderFromConfig(cfg.ai), timeoutMs: cfg.ai.timeoutMs, price: cfg.ai.price, maxUserBudgetUsd: cfg.ai.maxUserBudgetUsd, log: (m) => console.error(m) } : undefined,
 });
 if (cfg.ai) console.log(`AI layer available: ${cfg.ai.kind}/${cfg.ai.model} (off for each user until they enable it)`);

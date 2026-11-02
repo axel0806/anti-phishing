@@ -100,6 +100,17 @@ export class ScanService {
     };
   }
 
+  /** Re-scores the user's recent scans after a settings change. Pinned (manually judged) scans are left alone. */
+  async rescanRecent(user: User, days: number): Promise<{ rescanned: number; skippedPinned: number; failed: number }> {
+    const all = await this.deps.store.recentScanIds(user.id, days);
+    const open = new Set(await this.deps.store.recentScanIds(user.id, days, { excludePinned: true }));
+    const out = { rescanned: 0, skippedPinned: all.length - open.size, failed: 0 };
+    for (const id of open) {
+      try { await this.scan(user, id, { rescan: true, mode: "dry_run" }); out.rescanned++; } catch { out.failed++; }
+    }
+    return out;
+  }
+
   async scan(user: User, messageId: string, opts: { mode?: "dry_run" | "act"; rescan?: boolean } = {}): Promise<ScanOutcome> {
     const key = `${user.id}:${messageId}`;
     if (this.busy.has(key)) throw new ScanInProgress();
@@ -121,7 +132,8 @@ export class ScanService {
       const started = performance.now();
       const email = await parseEmail(await mail.fetchRaw(messageId), messageId);
       const history = await this.deps.store.getSenderHistory(user.id, email.from.address);
-      const verdict = await scanParsed(email, eff.settings, { lookups: this.deps.lookups ?? offlineLookups, senderHistory: history, ai: this.aiStageFor(user, eff.settings) });
+      const historySize = await this.deps.store.countSenders(user.id);
+      const verdict = await scanParsed(email, eff.settings, { lookups: this.deps.lookups ?? offlineLookups, senderHistory: history, historySize, ai: this.aiStageFor(user, eff.settings) });
       verdict.settingsVersion = eff.version;
 
       const scan = await this.deps.store.saveScan(user.id, messageId, verdict, {

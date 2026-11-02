@@ -192,3 +192,14 @@ describe("review I6/I3 persistence", () => {
     expect(await store.aiSpentThisMonthForOrg(org.id, new Date("2001-01-01"))).toBe(0);
   });
 });
+
+describe("recent scans and history size", () => {
+  it("lists the user's scan ids from the last N days, newest first, excluding pinned ones on request", async () => {
+    const u = await store.createUser({ email: "recent@example.com" });
+    for (const id of ["a", "b", "c"]) await store.saveScan(u.id, id, verdict("safe", 0), { latencyMs: 1 });
+    await store.addFeedback(u.id, "b", "not_phishing");
+    expect((await store.recentScanIds(u.id, 7)).sort()).toEqual(["a", "b", "c"]);
+    expect((await store.recentScanIds(u.id, 7, { excludePinned: true })).sort()).toEqual(["a", "c"]);
+    expect(await store.recentScanIds(u.id, 0)).toEqual([]);
+  });
+});

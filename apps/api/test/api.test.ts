@@ -249,3 +249,19 @@ describe("feedback acts on the mailbox", () => {
     await failing.close();
   });
 });
+
+describe("rescan", () => {
+  it("re-scores recent scans after settings change, skips pinned ones, and reports counts", async () => {
+    const u = await newUser("rescan@example.com");
+    await call(u, "POST", "/v1/scan", { providerMessageId: "phish" });
+    await call(u, "POST", "/v1/scan", { providerMessageId: "lunch" });
+    await call(u, "POST", "/v1/messages/lunch/feedback", { label: "phishing" });
+    await call(u, "POST", "/v1/lists/allow", { matchType: "domain", value: "paypa1-secure.net" }); // ignored while DMARC fails; verdict unchanged
+    await call(u, "PATCH", "/v1/settings", { sensitivity: "relaxed", categoryMultipliers: { authentication: 0 } });
+    const r = await call(u, "POST", "/v1/rescan", { days: 7 });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ rescanned: 1, skippedPinned: 1, failed: 0 });
+    expect((await call(u, "GET", "/v1/messages/lunch/verdict")).json()).toMatchObject({ verdict: "phishing", pinned: true });
+    expect((await call(u, "POST", "/v1/rescan", { days: 9999 })).statusCode).toBe(422);
+  });
+});

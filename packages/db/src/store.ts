@@ -142,6 +142,16 @@ export class Store {
     if (v.flags.length) await tx.insert(scanFlags).values(v.flags.map((f) => ({ scanId, flagId: f.id, weightApplied: Math.round(f.weight), evidence: f.evidence, source: f.source })));
   }
 
+  /** Message ids scanned in the last `days` days, newest first. */
+  async recentScanIds(userId: string, days: number, opts: { excludePinned?: boolean } = {}): Promise<string[]> {
+    if (days <= 0) return [];
+    const since = new Date(Date.now() - days * 86_400_000);
+    const conds = [eq(scans.userId, userId), gte(scans.createdAt, since)];
+    if (opts.excludePinned) conds.push(eq(scans.pinned, false));
+    const rows = await this.db.select({ id: scans.providerMessageId }).from(scans).where(and(...conds)).orderBy(sql`${scans.createdAt} desc`).limit(1000);
+    return rows.map((r) => r.id);
+  }
+
   /** Records the mailbox action that was applied (or ruled out) for a scan, so it is never applied twice. */
   async setScanAction(userId: string, providerMessageId: string, action: string): Promise<void> {
     await this.db.update(scans).set({ action }).where(and(eq(scans.userId, userId), eq(scans.providerMessageId, providerMessageId)));
