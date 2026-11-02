@@ -1,0 +1,26 @@
+{
+  "name": "anti-phishing",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "corpus"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.9.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "zod": "^4.6.7"
+  },
+  "dependencies": {
+    "mailparser": "^3.14.1",
+    "parse5": "^8.1.0",
+    "tldts": "^7.4.19"
+  }
+}
