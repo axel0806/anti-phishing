@@ -54,3 +54,5 @@ Spend is bounded three ways: each user's own monthly budget, a server-wide ceili
 What the model sees: sender name and address, reply-to, subject, the body truncated to 4,000 characters, links reduced to their host (no paths, query strings or tokens, anywhere in the text), attachment names and types, and the rule flags already fired. Email addresses, phone numbers and long digit strings are redacted first. The email is wrapped in a randomly delimited data block, the system prompt tells the model it is untrusted, and the reply must match a strict schema.
 
 Measure it: `npm run corpus:ab` runs `corpus/uncertain` through rules-only and rules + AI and reports the recall and false-positive change (needs a provider configured in the environment). `corpus/injection` holds prompt-injection emails used in the tests.
+
+> Agents and new contributors: read [docs/HANDOFF.md](docs/HANDOFF.md) first for the current project state, decisions and gotchas.
