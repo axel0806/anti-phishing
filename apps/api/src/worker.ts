@@ -36,5 +36,6 @@ export async function runWorkerPass(
 
 /** Nightly housekeeping: enforce data retention. */
 export async function runMaintenance(store: Store, retentionDays: number): Promise<{ purged: number }> {
+  await store.purgeAiCacheOlderThan(30); // cached model answers are disposable
   return { purged: await store.purgeScansOlderThan(retentionDays) };
 }

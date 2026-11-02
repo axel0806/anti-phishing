@@ -137,3 +137,33 @@ describe("acted-on tracking and write safety", () => {
     expect(again.action).toBeNull();
   });
 });
+
+describe("AI cache, usage and explanations", () => {
+  it("caches verdicts by key and purges old entries", async () => {
+    const v = { riskScore: 0.5, tactics: ["urgency"], impersonatedEntity: null, explanation: "e" };
+    expect(await store.aiCacheGet("k1")).toBeNull();
+    await store.aiCacheSet("k1", v);
+    await store.aiCacheSet("k1", { ...v, riskScore: 0.9 }); // overwrite is fine
+    expect(await store.aiCacheGet("k1")).toEqual({ ...v, riskScore: 0.9 });
+    expect(await store.purgeAiCacheOlderThan(30)).toBe(0);
+    expect(await store.purgeAiCacheOlderThan(-1)).toBeGreaterThanOrEqual(1);
+    expect(await store.aiCacheGet("k1")).toBeNull();
+  });
+  it("accumulates usage per user and per month", async () => {
+    const a = await store.createUser({ email: "ai-a@example.com" });
+    const b = await store.createUser({ email: "ai-b@example.com" });
+    expect(await store.aiSpentThisMonth(a.id)).toBe(0);
+    await store.aiRecordUsage(a.id, 0.25);
+    await store.aiRecordUsage(a.id, 0.5);
+    await store.aiRecordUsage(b.id, 9);
+    expect(await store.aiSpentThisMonth(a.id)).toBeCloseTo(0.75);
+    expect(await store.aiSpentThisMonth(b.id)).toBeCloseTo(9);
+    expect(await store.aiSpentThisMonth(a.id, new Date("2000-01-15"))).toBe(0);
+    expect(await store.aiCallsThisMonth(a.id)).toBe(2);
+  });
+  it("stores and returns the AI explanation with the scan", async () => {
+    const u = await store.createUser({ email: "ai-expl@example.com" });
+    const s = await store.saveScan(u.id, "m", { ...verdict("suspicious", 40), aiUsed: true, aiExplanation: "Looks like a fake invoice." }, { latencyMs: 1 });
+    expect(s.verdict).toMatchObject({ aiUsed: true, aiExplanation: "Looks like a fake invoice." });
+  });
+});

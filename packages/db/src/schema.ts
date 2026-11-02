@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
 export const orgs = pgTable("orgs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -48,6 +48,7 @@ export const scans = pgTable("scans", {
   latencyMs: integer("latency_ms").notNull(),
   settingsVersion: integer("settings_version").notNull(),
   reason: text("reason"),
+  aiExplanation: text("ai_explanation"),
   sender: text("sender"),
   subjectHash: text("subject_hash"),
   pinned: boolean("pinned").notNull().default(false), // a manual verdict: never re-scored
@@ -72,3 +73,16 @@ export const feedback = pgTable("feedback", {
   label: text("label").notNull(), // not_phishing | phishing
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.scanId, t.userId] })]);
+
+export const aiCache = pgTable("ai_cache", {
+  key: text("key").primaryKey(),
+  verdict: jsonb("verdict").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const aiUsage = pgTable("ai_usage", {
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  month: text("month").notNull(), // UTC, YYYY-MM
+  calls: integer("calls").notNull().default(0),
+  costUsd: doublePrecision("cost_usd").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.userId, t.month] })]);

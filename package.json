@@ -16,7 +16,8 @@
     "corpus": "tsx corpus/run.ts",
     "build:ext": "node apps/extension/build.mjs",
     "api": "tsx apps/api/src/main.ts",
-    "api:cli": "tsx apps/api/src/cli.ts"
+    "api:cli": "tsx apps/api/src/cli.ts",
+    "corpus:ab": "tsx corpus/ab.ts"
   },
   "devDependencies": {
     "@types/mailparser": "^3.9.0",

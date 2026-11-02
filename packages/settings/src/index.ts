@@ -13,6 +13,7 @@ export const SettingsOverridesSchema = z.strictObject({
   categoryMultipliers: z.partialRecord(z.enum(CATEGORIES), z.number().min(0).max(10)),
   protectedDomains: z.array(z.string().min(1)).max(500),
   shadowMode: z.boolean(),
+  ai: z.strictObject({ enabled: z.boolean(), mode: z.enum(["uncertain_only", "always"]), monthlyBudgetUsd: z.number().min(0).max(100000) }).partial(),
 }).partial();
 
 export type SettingsOverrides = z.infer<typeof SettingsOverridesSchema>;

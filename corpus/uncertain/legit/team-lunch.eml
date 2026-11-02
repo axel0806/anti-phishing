@@ -1,0 +1,9 @@
+Authentication-Results: mx.google.com; spf=pass; dkim=pass; dmarc=pass
+From: "Dana" <dana@workplace.example>
+Reply-To: dana.personal@outlook.example
+To: me@example.com
+Subject: Team lunch
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<p>Booked a table for Friday. Menu and directions here: <a href="http://tinyurl.com/lunch-fri">http://tinyurl.com/lunch-fri</a></p>

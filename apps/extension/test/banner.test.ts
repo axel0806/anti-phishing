@@ -26,3 +26,18 @@ describe("bannerModel list reasons", () => {
     expect(m.reasons).toEqual(["Sender is on your blocklist"]);
   });
 });
+
+describe("bannerModel AI explanation", () => {
+  const base = { action: "none", shadow: false, verdict: { score: 70, verdict: "phishing" as const, flags: [{ id: "ai_intent", weight: 36, evidence: "Fake delivery notice." }], aiExplanation: "Fake delivery notice." } };
+  it("carries the AI explanation separately and does not repeat it as a reason", () => {
+    const m = bannerModel(base)!;
+    expect(m.explanation).toBe("Fake delivery notice.");
+    expect(m.reasons).toEqual([]);
+  });
+  it("keeps other reasons and has no explanation when the AI was not used", () => {
+    const withRule = { ...base, verdict: { ...base.verdict, flags: [...base.verdict.flags, { id: "spf_fail", weight: 20, evidence: "SPF fail" }] } };
+    expect(bannerModel(withRule)!.reasons).toEqual(["SPF fail"]);
+    const noAi = bannerModel({ ...base, verdict: { ...base.verdict, aiExplanation: undefined, flags: [{ id: "spf_fail", weight: 20, evidence: "SPF fail" }] } })!;
+    expect(noAi.explanation).toBeUndefined();
+  });
+});

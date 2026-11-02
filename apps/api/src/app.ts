@@ -155,7 +155,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
     priv.get<{ Querystring: { days?: string } }>("/v1/me/stats", async (req) => {
       const days = Math.min(365, Math.max(1, Number(req.query.days) || 7));
-      return { days, ...(await store.statsFor(req.user!.id, days)) };
+      const id = req.user!.id;
+      return { days, ...(await store.statsFor(id, days)), aiCalls: await store.aiCallsThisMonth(id), aiSpentUsd: await store.aiSpentThisMonth(id) };
     });
   });
 

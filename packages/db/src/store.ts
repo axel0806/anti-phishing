@@ -2,7 +2,7 @@ import { and, count, eq, gte, inArray, sql } from "drizzle-orm";
 import { FLAG_CATEGORY, type Flag, type FlagId, type ListEntry, type SenderHistory, type Verdict } from "@ap/shared";
 import type { OrgPolicy, SettingsOverrides } from "@ap/settings";
 import type { Db } from "./migrate.ts";
-import { feedback, listEntries, orgs, scanFlags, scans, senderHistory, users } from "./schema.ts";
+import { aiCache, aiUsage, feedback, listEntries, orgs, scanFlags, scans, senderHistory, users } from "./schema.ts";
 
 export type Role = "user" | "viewer" | "analyst" | "admin";
 export interface User { id: string; orgId: string | null; email: string; provider: string; role: Role; overrides: SettingsOverrides; encryptedTokens: string | null }
@@ -106,7 +106,7 @@ export class Store {
     }));
     return {
       id: s.id, pinned: s.pinned, action: s.action, sender: s.sender, createdAt: s.createdAt,
-      verdict: { score: s.score, verdict: s.verdict as Verdict["verdict"], flags, aiUsed: s.aiUsed, settingsVersion: s.settingsVersion, reason: s.reason ?? undefined },
+      verdict: { score: s.score, verdict: s.verdict as Verdict["verdict"], flags, aiUsed: s.aiUsed, settingsVersion: s.settingsVersion, reason: s.reason ?? undefined, aiExplanation: s.aiExplanation ?? undefined },
     };
   }
 
@@ -118,7 +118,7 @@ export class Store {
   async saveScan(userId: string, providerMessageId: string, v: Verdict, meta: ScanMeta): Promise<StoredScan> {
     const values = {
       userId, providerMessageId, score: v.score, verdict: v.verdict, aiUsed: v.aiUsed, latencyMs: Math.round(meta.latencyMs),
-      settingsVersion: v.settingsVersion, reason: v.reason ?? null, sender: meta.sender ?? null, subjectHash: meta.subjectHash ?? null, action: null,
+      settingsVersion: v.settingsVersion, reason: v.reason ?? null, aiExplanation: v.aiExplanation ?? null, sender: meta.sender ?? null, subjectHash: meta.subjectHash ?? null, action: null,
     };
     await this.db.transaction(async (tx) => {
       const lock = () => tx.select().from(scans).where(and(eq(scans.userId, userId), eq(scans.providerMessageId, providerMessageId))).for("update");
@@ -158,6 +158,32 @@ export class Store {
       return true;
     });
     return found ? this.getScan(userId, providerMessageId) : null;
+  }
+
+  // ---- AI layer: response cache and monthly usage ----
+  async aiCacheGet(key: string): Promise<unknown | null> {
+    const [r] = await this.db.select().from(aiCache).where(eq(aiCache.key, key));
+    return r ? r.verdict : null;
+  }
+  async aiCacheSet(key: string, verdict: unknown): Promise<void> {
+    await this.db.insert(aiCache).values({ key, verdict }).onConflictDoUpdate({ target: aiCache.key, set: { verdict, createdAt: new Date() } });
+  }
+  async purgeAiCacheOlderThan(days: number): Promise<number> {
+    const cutoff = new Date(Date.now() - days * 86_400_000);
+    return (await this.db.delete(aiCache).where(sql`${aiCache.createdAt} < ${cutoff}`).returning({ k: aiCache.key })).length;
+  }
+  async aiRecordUsage(userId: string, costUsd: number, now = new Date()): Promise<void> {
+    const month = now.toISOString().slice(0, 7);
+    await this.db.insert(aiUsage).values({ userId, month, calls: 1, costUsd })
+      .onConflictDoUpdate({ target: [aiUsage.userId, aiUsage.month], set: { calls: sql`${aiUsage.calls} + 1`, costUsd: sql`${aiUsage.costUsd} + ${costUsd}` } });
+  }
+  async aiSpentThisMonth(userId: string, now = new Date()): Promise<number> {
+    const [r] = await this.db.select().from(aiUsage).where(and(eq(aiUsage.userId, userId), eq(aiUsage.month, now.toISOString().slice(0, 7))));
+    return r?.costUsd ?? 0;
+  }
+  async aiCallsThisMonth(userId: string, now = new Date()): Promise<number> {
+    const [r] = await this.db.select().from(aiUsage).where(and(eq(aiUsage.userId, userId), eq(aiUsage.month, now.toISOString().slice(0, 7))));
+    return r?.calls ?? 0;
   }
 
   async statsFor(userId: string, days: number): Promise<{ scanned: number; safe: number; suspicious: number; phishing: number; falsePositives: number }> {

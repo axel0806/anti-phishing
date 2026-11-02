@@ -6,6 +6,7 @@ import type { DetectorContext } from "@ap/detectors";
 import { resolveSettings } from "@ap/settings";
 import { DEFAULT_SETTINGS, type Settings, type Verdict } from "@ap/shared";
 import type { Store, StoredScan, User } from "@ap/db";
+import { AiVerdictSchema, type AiBudget, type AiCache, type AiProvider, type Price } from "@ap/ai";
 
 export const PHISHING_FOLDER = "Phishing";
 export const SUSPICIOUS_LABEL = "Suspicious";
@@ -18,6 +19,8 @@ export interface ScanServiceDeps {
   /** Returns a mail client for the user, or null if their mailbox isn't linked. */
   mailFor: (user: User) => MailProvider | null;
   lookups?: DetectorContext["lookups"];
+  /** The server's AI layer. Absent = no user can enable AI. */
+  ai?: { provider: AiProvider; timeoutMs?: number; price?: Price; log?: (m: string) => void };
 }
 
 export interface Effective { settings: Settings; lockedFields: string[]; version: number }
@@ -71,6 +74,25 @@ export class ScanService {
    * Scan one message. Idempotent per message: a stored verdict is returned unless `rescan` is set, and a user-pinned
    * (manually judged) verdict is never replaced. `mode: "act"` also moves/labels the mail unless shadow mode is on.
    */
+  /** Store-backed cache and per-user monthly budget for one scan, or undefined when AI is unavailable or switched off. */
+  private aiStageFor(user: User, settings: Settings) {
+    const ai = this.deps.ai;
+    if (!ai || !settings.ai.enabled) return undefined;
+    const store = this.deps.store;
+    const cache: AiCache = {
+      get: async (k) => { const r = AiVerdictSchema.safeParse(await store.aiCacheGet(k)); return r.success ? r.data : null; },
+      set: (k, v) => store.aiCacheSet(k, v),
+    };
+    const budget: AiBudget = {
+      allow: async () => (await store.aiSpentThisMonth(user.id)) < settings.ai.monthlyBudgetUsd,
+      record: (cost) => store.aiRecordUsage(user.id, cost),
+    };
+    return {
+      provider: ai.provider, timeoutMs: ai.timeoutMs, price: ai.price, cache, budget,
+      onEvent: (e: { reason: string; message?: string }) => ai.log?.(`AI fallback for user ${user.id}: ${e.reason}${e.message ? " (" + e.message + ")" : ""}`),
+    };
+  }
+
   async scan(user: User, messageId: string, opts: { mode?: "dry_run" | "act"; rescan?: boolean } = {}): Promise<ScanOutcome> {
     const key = `${user.id}:${messageId}`;
     if (this.busy.has(key)) throw new ScanInProgress();
@@ -92,7 +114,7 @@ export class ScanService {
       const started = performance.now();
       const email = await parseEmail(await mail.fetchRaw(messageId), messageId);
       const history = await this.deps.store.getSenderHistory(user.id, email.from.address);
-      const verdict = await scanParsed(email, eff.settings, { lookups: this.deps.lookups ?? offlineLookups, senderHistory: history });
+      const verdict = await scanParsed(email, eff.settings, { lookups: this.deps.lookups ?? offlineLookups, senderHistory: history, ai: this.aiStageFor(user, eff.settings) });
       verdict.settingsVersion = eff.version;
 
       const scan = await this.deps.store.saveScan(user.id, messageId, verdict, {

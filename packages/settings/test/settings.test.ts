@@ -65,3 +65,15 @@ describe("prototype pollution", () => {
     expect(({} as Record<string, unknown>).polluted3).toBeUndefined();
   });
 });
+
+describe("ai settings", () => {
+  it("are off by default, patchable, lockable and validated", () => {
+    expect(DEFAULT_SETTINGS.ai).toEqual({ enabled: false, mode: "uncertain_only", monthlyBudgetUsd: 5 });
+    const r = applyPatch({}, { ai: { enabled: true, monthlyBudgetUsd: 2.5 } }, []);
+    expect(r).toEqual({ ok: true, overrides: { ai: { enabled: true, monthlyBudgetUsd: 2.5 } } });
+    expect(resolveSettings(DEFAULT_SETTINGS, { values: {}, locked: [] }, (r as any).overrides).settings.ai).toEqual({ enabled: true, mode: "uncertain_only", monthlyBudgetUsd: 2.5 });
+    expect(applyPatch({}, { ai: { mode: "sometimes" } }, [])).toMatchObject({ ok: false, error: "validation" });
+    expect(applyPatch({}, { ai: { monthlyBudgetUsd: -1 } }, [])).toMatchObject({ ok: false, error: "validation" });
+    expect(applyPatch({}, { ai: { enabled: false } }, ["ai"])).toMatchObject({ ok: false, error: "locked_field" });
+  });
+});
