@@ -5,14 +5,14 @@ import type { Db } from "./migrate.ts";
 import { feedback, listEntries, orgs, scanFlags, scans, senderHistory, users } from "./schema.ts";
 
 export type Role = "user" | "viewer" | "analyst" | "admin";
-export interface User { id: string; orgId: string | null; email: string; provider: string; role: Role; overrides: SettingsOverrides }
+export interface User { id: string; orgId: string | null; email: string; provider: string; role: Role; overrides: SettingsOverrides; encryptedTokens: string | null }
 export interface StoredScan { id: string; verdict: Verdict; pinned: boolean; sender: string | null; createdAt: Date }
 export interface Lists { allow: ListEntry[]; block: ListEntry[] }
 export interface ScanMeta { latencyMs: number; sender?: string; subjectHash?: string }
 
 const toUser = (r: typeof users.$inferSelect): User => ({
   id: r.id, orgId: r.orgId, email: r.email, provider: r.provider, role: r.role as Role,
-  overrides: r.settingsOverrides as SettingsOverrides,
+  overrides: r.settingsOverrides as SettingsOverrides, encryptedTokens: r.encryptedTokens,
 });
 
 /** All persistence the API needs. Works on any drizzle Postgres driver (node-postgres in production, PGlite in tests). */
@@ -49,6 +49,15 @@ export class Store {
   }
   async setUserOverrides(userId: string, overrides: SettingsOverrides): Promise<void> {
     await this.db.update(users).set({ settingsOverrides: overrides }).where(eq(users.id, userId));
+  }
+
+  async setEncryptedTokens(userId: string, blob: string | null): Promise<void> {
+    await this.db.update(users).set({ encryptedTokens: blob }).where(eq(users.id, userId));
+  }
+  /** Users whose mailbox is linked: the worker scans these. */
+  async listLinkedUsers(): Promise<User[]> {
+    const rows = await this.db.select().from(users).where(sql`${users.encryptedTokens} is not null`);
+    return rows.map(toUser);
   }
 
   // ---- allow / block lists ----

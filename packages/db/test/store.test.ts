@@ -82,3 +82,21 @@ describe("scans, feedback, history, stats", () => {
     expect(await store.getScan(u.id, "old")).toBeNull();
   });
 });
+
+describe("connect with a data directory", () => {
+  it("creates missing nested directories and persists data across reconnects", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const root = mkdtempSync(join(tmpdir(), "ap-db-"));
+    const dir = join(root, "a", "b", "data");
+    try {
+      const c1 = await connect(undefined, { dataDir: dir });
+      await new Store(c1.db).createUser({ email: "persist@example.com" });
+      await c1.close();
+      const c2 = await connect(undefined, { dataDir: dir });
+      expect(await new Store(c2.db).getUserByEmail("persist@example.com")).not.toBeNull();
+      await c2.close();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});
