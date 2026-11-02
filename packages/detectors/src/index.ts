@@ -93,6 +93,13 @@ const replyTo: Detector = (e, ctx) => {
 };
 
 const SHORTENERS = new Set(["bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly", "rebrand.ly", "cutt.ly", "shorturl.at"]);
+/** Email-service providers whose click-tracking redirects legitimately differ from the visible link text. */
+export const TRACKING_DOMAINS = new Set([
+  "inflection.io", "klclick1.com", "klclick.com", "pstmrk.it", "sendgrid.net", "mailchimp.com", "list-manage.com",
+  "mandrillapp.com", "hubspotlinks.com", "hs-sites.com", "mkto-ab.com", "mktoweb.com", "sparkpostmail.com",
+  "amazonses.com", "rs6.net", "constantcontact.com", "exct.net", "sailthru.com", "customeriomail.com", "mailgun.org",
+  "braze.com", "iterable.com", "campaign-archive.com", "convertkit-mail.com", "ck.page",
+]);
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 const LOOKS_LIKE_DOMAIN = /^(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?:[/:?#]|$)/i;
 
@@ -100,8 +107,11 @@ const links: Detector = async (e, ctx) => {
   const out: (Flag | null)[] = [];
   for (const l of e.links) {
     const m = LOOKS_LIKE_DOMAIN.exec(l.text.trim());
-    if (m && registrableDomain(m[1]!) !== registrableDomain(l.domain)) {
-      out.push(fl(ctx, "link_text_mismatch", `Link says ${m[1]} but goes to ${l.domain}`));
+    if (m && registrableDomain(m[1]!) !== registrableDomain(l.domain) && !TRACKING_DOMAINS.has(registrableDomain(l.domain))) {
+      const flag = fl(ctx, "link_text_mismatch", `Link says ${m[1]} but goes to ${l.domain}`);
+      // Authenticated senders (DKIM + DMARC pass) get half weight, unless the user set an explicit weight.
+      if (flag && !ctx.settings.flags.link_text_mismatch && e.auth.dkim === "pass" && e.auth.dmarc === "pass") flag.weight = Math.round(flag.weight / 2);
+      out.push(flag);
       break;
     }
   }
