@@ -163,7 +163,8 @@ export class Store {
       const [s] = await tx.select().from(scans).where(and(eq(scans.userId, userId), eq(scans.providerMessageId, providerMessageId))).for("update");
       if (!s) return false;
       await tx.update(scans).set({ pinned: true, verdict: label === "phishing" ? "phishing" : "safe", action: "manual" }).where(eq(scans.id, s.id));
-      await tx.insert(feedback).values({ scanId: s.id, userId, label })
+      // Keep the FIRST decision we made as `previous_verdict`: a user changing their mind must not erase what we originally said.
+      await tx.insert(feedback).values({ scanId: s.id, userId, label, previousVerdict: s.verdict })
         .onConflictDoUpdate({ target: [feedback.scanId, feedback.userId], set: { label, createdAt: new Date() } });
       return true;
     });

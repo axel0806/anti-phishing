@@ -22,6 +22,8 @@ export interface Config {
   pollSeconds: number;
   google: { clientId: string; clientSecret: string } | null;
   dataDir: string;
+  /** Lets a Prometheus server on another host read /metrics. Loopback callers never need it. */
+  metricsToken: string | undefined;
   retentionDays: number;
   /** Network lookups used by the detectors. Both are opt-in because they send data (a domain name / a URL path) to a third party. */
   lookups: { rdap: boolean; safeBrowsingKey: string | undefined };
@@ -95,5 +97,6 @@ export function loadConfig(env: Env): Config {
     serverId: env.SERVER_ID || createHash("sha256").update("server-id:" + secret).digest("hex").slice(0, 16),
     google: clientId && clientSecret ? { clientId, clientSecret } : null,
     dataDir: env.DATA_DIR ?? ".data",
+    metricsToken: env.METRICS_TOKEN || undefined,
   };
 }

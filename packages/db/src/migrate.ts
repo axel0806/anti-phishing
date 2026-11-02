@@ -95,6 +95,33 @@ create table ai_usage (
 );`,
   },
   { id: "0004_flag_source", sql: "alter table scan_flags add column source text not null default 'rule'" },
+  {
+    id: "0005_admin",
+    sql: `
+alter table feedback add column previous_verdict text;
+create table daily_stats (
+  org_id uuid not null references orgs(id) on delete cascade,
+  date date not null,
+  user_id uuid not null references users(id) on delete cascade,
+  scanned int not null default 0,
+  safe int not null default 0,
+  suspicious int not null default 0,
+  phishing int not null default 0,
+  false_positives int not null default 0,
+  ai_calls int not null default 0,
+  primary key (org_id, date, user_id)
+);
+create index daily_stats_org_date on daily_stats (org_id, date);
+create table audit_log (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references orgs(id) on delete cascade,
+  actor_id uuid references users(id) on delete set null,
+  action text not null,
+  target text,
+  created_at timestamptz not null default now()
+);
+create index audit_log_org_created on audit_log (org_id, created_at desc);`,
+  },
 ];
 
 /** Arbitrary constant: every process that migrates takes the same lock, so API and worker can start together. */

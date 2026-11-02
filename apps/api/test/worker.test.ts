@@ -89,3 +89,36 @@ describe("maintenance", () => {
     expect((await runMaintenance(store, -1)).purged).toBeGreaterThanOrEqual(1);
   });
 });
+
+import { AdminQueries } from "@ap/db";
+import { Metrics } from "../src/metrics.ts";
+
+describe("maintenance keeps statistics when scans expire", () => {
+  it("rolls recent days up before purging, so the dashboard keeps its history", async () => {
+    const admin = new AdminQueries(conn.db);
+    const org = await store.createOrg("Keep");
+    const u = await store.createUser({ email: "keeper@example.com", orgId: org.id });
+    await store.saveScan(u.id, "old1", { verdict: "phishing", score: 90, flags: [], aiUsed: false, settingsVersion: 1 }, { latencyMs: 1 });
+    await runMaintenance(store, 90, admin); // rolls up today, nothing to purge yet
+    const day = new Date().toISOString().slice(0, 10);
+    const range = { from: new Date(day + "T00:00:00Z"), to: new Date(Date.parse(day + "T00:00:00Z") + 86_400_000) };
+    expect((await admin.overview(org.id, range)).current.phishing).toBe(1);
+    const r = await runMaintenance(store, -1, admin); // everything is now "too old"
+    expect(r.purged).toBeGreaterThanOrEqual(1);
+    expect(await store.getScan(u.id, "old1")).toBeNull();
+    expect((await admin.overview(org.id, range)).current.phishing).toBe(1); // the aggregate survives the purge
+  });
+});
+
+describe("worker metrics", () => {
+  it("counts provider failures", async () => {
+    const metrics = new Metrics();
+    const u = await store.createUser({ email: "metrics@example.com" });
+    await store.setEncryptedTokens(u.id, "blob");
+    const broken = { ...mail([], []), listRecentInbox: async () => { throw new Error("401"); } };
+    await runWorkerPass(store, new ScanService({ store, mailFor: () => broken }), () => broken, { metrics });
+    const linked = (await store.listLinkedUsers()).length; // every linked user in this shared test database fails once
+    expect(linked).toBeGreaterThanOrEqual(1);
+    expect(metrics.render()).toContain(`provider_errors_total ${linked}`);
+  });
+});

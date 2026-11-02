@@ -2,8 +2,11 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { z } from "zod";
 import { applyPatch, hasDangerousKey, OrgValuesSchema, SettingsOverridesSchema } from "@ap/settings";
 import { ListEntrySchema } from "@ap/shared";
-import type { Store, User } from "@ap/db";
+import type { AdminQueries, Store, User } from "@ap/db";
 import { signToken, verifyToken } from "./auth.ts";
+import { registerAdminRoutes } from "./adminRoutes.ts";
+import { fail } from "./errors.ts";
+import type { Metrics } from "./metrics.ts";
 import { MailUnavailable, ScanInProgress, type ScanService } from "./service.ts";
 
 export const API_VERSION = "0.2.0";
@@ -13,20 +16,17 @@ export interface AppDeps {
   service: ScanService;
   serverId: string;
   secret: string;
+  /** Enables the /v1/admin dashboard API, the audit log and weight suggestions. */
+  admin?: AdminQueries;
+  metrics?: Metrics;
+  /** Bearer token for /metrics from non-loopback hosts. Without it, only loopback callers may read metrics. */
+  metricsToken?: string;
 }
 
 declare module "fastify" {
   interface FastifyRequest { user?: User }
 }
 
-type Code = "locked_field" | "validation" | "unauthorized" | "forbidden" | "rate_limited" | "scan_in_progress" | "not_found" | "not_scanned" | "mail_unavailable";
-const STATUS: Record<Code, number> = {
-  locked_field: 409, validation: 422, unauthorized: 401, forbidden: 403, rate_limited: 429, scan_in_progress: 409,
-  not_found: 404, not_scanned: 404, mail_unavailable: 503,
-};
-function fail(reply: FastifyReply, code: Code, message: string, fields?: string[]) {
-  return reply.code(STATUS[code]).send({ error: { code, message, ...(fields?.length ? { fields } : {}) } });
-}
 
 const ScanBody = z.object({ providerMessageId: z.string().min(1).max(200), mode: z.enum(["dry_run", "act"]).optional(), rescan: z.boolean().optional() });
 const FeedbackBody = z.object({ label: z.enum(["not_phishing", "phishing"]), updateList: z.boolean().optional() });
@@ -37,7 +37,7 @@ const SETTINGS_KEYS = new Set(Object.keys(SettingsOverridesSchema.shape));
 const SAFE_ID = /^[A-Za-z0-9_-]{1,200}$/;
 
 export function buildApp(deps: AppDeps): FastifyInstance {
-  const { store, service, serverId, secret } = deps;
+  const { store, service, serverId, secret, admin } = deps;
   const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
   // RFC 7386 merge patches arrive as application/merge-patch+json; treat them as JSON.
   app.addContentTypeParser("application/merge-patch+json", { parseAs: "string" }, (_req, body, done) => {
@@ -55,6 +55,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.get("/v1/health", async () => ({ version: API_VERSION, serverId, apiVersions: ["v1"] }));
 
+  app.get("/metrics", async (req, reply) => {
+    if (!deps.metrics) return fail(reply, "not_found", "Metrics are not enabled");
+    const host = (req.headers.host ?? "").replace(/:\d+$/, "").toLowerCase();
+    const loopback = host === "127.0.0.1" || host === "localhost" || host === "[::1]";
+    const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
+    if (!loopback && !(deps.metricsToken && bearer === deps.metricsToken)) return fail(reply, "forbidden", "Metrics are only available locally or with the metrics token");
+    return reply.header("content-type", "text/plain; version=0.0.4").send(deps.metrics.render());
+  });
+
   // ---- everything below needs a valid session token for this server ----
   app.register(async (priv) => {
     priv.addHook("preHandler", async (req: FastifyRequest, reply: FastifyReply) => {
@@ -64,6 +73,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       if (!user) return fail(reply, "unauthorized", "Missing or invalid session token");
       req.user = user;
     });
+
+    if (admin) registerAdminRoutes(priv, { store, admin, service });
 
     priv.get("/v1/settings", async (req) => {
       const e = await service.effectiveSettings(req.user!);
@@ -97,6 +108,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const unknown = body.data.locked.filter((k) => !SETTINGS_KEYS.has(k.split(".")[0]!));
       if (unknown.length) return fail(reply, "validation", "Unknown settings keys in locked", unknown);
       await store.setOrgPolicy(req.params.id, body.data);
+      await admin?.audit(req.params.id, req.user!.id, "policy.update", null);
       return body.data;
     });
 
@@ -108,6 +120,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const org = body.data.scope === "org";
       if (org && (u.role !== "admin" || !u.orgId)) return fail(reply, "forbidden", "Only an org admin can edit org lists");
       await store.addEntry(org ? { kind: "org", id: u.orgId! } : { kind: "user", id: u.id }, kind.data, body.data, u.id);
+      if (org) await admin?.audit(u.orgId!, u.id, "list.add", `${kind.data}:${body.data.matchType}:${body.data.value}`);
       return reply.code(201).send({ ok: true });
     });
     priv.delete<{ Params: { kind: string } }>("/v1/lists/:kind", async (req, reply) => {
@@ -118,6 +131,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const org = body.data.scope === "org";
       if (org && (u.role !== "admin" || !u.orgId)) return fail(reply, "forbidden", "Only an org admin can edit org lists");
       const removed = await store.removeEntry(org ? u.orgId! : u.id, kind.data, body.data);
+      if (org && removed) await admin?.audit(u.orgId!, u.id, "list.remove", `${kind.data}:${body.data.matchType}:${body.data.value}`);
       return removed ? { ok: true } : fail(reply, "not_found", "No such list entry");
     });
 

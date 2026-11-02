@@ -6,6 +6,7 @@ import type { DetectorContext } from "@ap/detectors";
 import { resolveSettings } from "@ap/settings";
 import { DEFAULT_SETTINGS, type Settings, type Verdict } from "@ap/shared";
 import type { Store, StoredScan, User } from "@ap/db";
+import type { Metrics } from "./metrics.ts";
 import { AiVerdictSchema, type AiBudget, type AiCache, type AiProvider, type Price } from "@ap/ai";
 
 export const PHISHING_FOLDER = "Phishing";
@@ -20,6 +21,7 @@ export interface ScanServiceDeps {
   mailFor: (user: User) => MailProvider | null;
   lookups?: DetectorContext["lookups"];
   /** The server's AI layer. Absent = no user can enable AI. */
+  metrics?: Metrics;
   ai?: { provider: AiProvider; timeoutMs?: number; price?: Price; maxUserBudgetUsd?: number; log?: (m: string) => void };
 }
 
@@ -96,7 +98,7 @@ export class ScanService {
     };
     return {
       provider: ai.provider, timeoutMs: ai.timeoutMs, price: ai.price, cache, budget,
-      onEvent: (e: { reason: string; message?: string }) => ai.log?.(`AI fallback for user ${user.id}: ${e.reason}${e.message ? " (" + e.message + ")" : ""}`),
+      onEvent: (e: { reason: string; message?: string }) => this.deps.metrics?.inc("ai_fallbacks_total", { reason: e.reason }) ?? ai.log?.(`AI fallback for user ${user.id}: ${e.reason}${e.message ? " (" + e.message + ")" : ""}`),
     };
   }
 
@@ -142,6 +144,8 @@ export class ScanService {
       });
       if (!existing) await this.deps.store.recordSender(user.id, email.from.address);
 
+      this.deps.metrics?.inc("scans_total", { verdict: verdict.verdict });
+      this.deps.metrics?.observe("scan_latency_ms", performance.now() - started);
       const action = opts.mode === "act" ? await this.act(user, eff.settings, verdict, messageId, mail) : ("none" as const);
       return { scan, action, cached: false };
     } finally {

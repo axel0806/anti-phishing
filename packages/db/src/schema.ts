@@ -1,4 +1,4 @@
-import { boolean, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
 export const orgs = pgTable("orgs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -72,6 +72,7 @@ export const feedback = pgTable("feedback", {
   scanId: uuid("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   label: text("label").notNull(), // not_phishing | phishing
+  previousVerdict: text("previous_verdict"), // what we had decided before the user's judgement
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.scanId, t.userId] })]);
 
@@ -87,3 +88,24 @@ export const aiUsage = pgTable("ai_usage", {
   calls: integer("calls").notNull().default(0),
   costUsd: doublePrecision("cost_usd").notNull().default(0),
 }, (t) => [primaryKey({ columns: [t.userId, t.month] })]);
+
+export const dailyStats = pgTable("daily_stats", {
+  orgId: uuid("org_id").notNull().references(() => orgs.id, { onDelete: "cascade" }),
+  date: date("date", { mode: "string" }).notNull(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  scanned: integer("scanned").notNull().default(0),
+  safe: integer("safe").notNull().default(0),
+  suspicious: integer("suspicious").notNull().default(0),
+  phishing: integer("phishing").notNull().default(0),
+  falsePositives: integer("false_positives").notNull().default(0),
+  aiCalls: integer("ai_calls").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.orgId, t.date, t.userId] })]);
+
+export const auditLog = pgTable("audit_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id").notNull().references(() => orgs.id, { onDelete: "cascade" }),
+  actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  target: text("target"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

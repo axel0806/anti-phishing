@@ -1,5 +1,6 @@
 import type { MailProvider } from "@ap/mail";
-import type { Store, User } from "@ap/db";
+import type { AdminQueries, Store, User } from "@ap/db";
+import type { Metrics } from "./metrics.ts";
 import { MailUnavailable, ScanInProgress, type ScanService } from "./service.ts";
 
 export interface PassResult { users: number; scanned: number; failed: number }
@@ -9,7 +10,7 @@ export interface PassResult { users: number; scanned: number; failed: number }
  * overlapping pass can never double-move mail. A failing message or user never blocks the rest.
  */
 export async function runWorkerPass(
-  store: Store, service: ScanService, mailFor: (u: User) => MailProvider | null, opts: { limit?: number; log?: (m: string) => void } = {},
+  store: Store, service: ScanService, mailFor: (u: User) => MailProvider | null, opts: { limit?: number; log?: (m: string) => void; metrics?: Metrics } = {},
 ): Promise<PassResult> {
   const out: PassResult = { users: 0, scanned: 0, failed: 0 };
   for (const user of await store.listLinkedUsers()) {
@@ -17,7 +18,7 @@ export async function runWorkerPass(
     if (!mail) continue;
     out.users++;
     let ids: string[];
-    try { ids = await mail.listRecentInbox(opts.limit ?? 25); } catch (e) { out.failed++; opts.log?.(`list failed for user ${user.id}: ${(e as Error).message}`); continue; }
+    try { ids = await mail.listRecentInbox(opts.limit ?? 25); } catch (e) { out.failed++; opts.metrics?.inc("provider_errors_total"); opts.log?.(`list failed for user ${user.id}: ${(e as Error).message}`); continue; }
     for (const id of ids) {
       const seen = await store.getScan(user.id, id);
       if (seen && (seen.pinned || seen.action !== null)) continue; // handled, or judged by the user; a dry-run scan still awaits its action
@@ -27,6 +28,7 @@ export async function runWorkerPass(
       } catch (e) {
         if (e instanceof ScanInProgress || e instanceof MailUnavailable) continue;
         out.failed++;
+        opts.metrics?.inc("provider_errors_total");
         opts.log?.(`scan failed for user ${user.id}/${id}: ${(e as Error).message}`);
       }
     }
@@ -35,7 +37,10 @@ export async function runWorkerPass(
 }
 
 /** Nightly housekeeping: enforce data retention. */
-export async function runMaintenance(store: Store, retentionDays: number): Promise<{ purged: number }> {
+export async function runMaintenance(store: Store, retentionDays: number, admin?: AdminQueries): Promise<{ purged: number }> {
+  // Settle the last few days into daily_stats BEFORE anything expires, so dashboard history outlives the scans it came from.
+  // Covering several days also repairs gaps after downtime.
+  if (admin) for (let n = 3; n >= 0; n--) await admin.rollupDay(new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10));
   await store.purgeAiCacheOlderThan(Math.min(30, retentionDays)); // cached answers derive from mail, so they never outlive it
   return { purged: await store.purgeScansOlderThan(retentionDays) };
 }
