@@ -50,18 +50,30 @@ const authentication: Detector = (e, ctx) => {
   ]);
 };
 
+/** Country suffixes under which big brands really own their name (amazon.ca, google.ch). Deliberately excludes e.g. `.co`. */
+const COUNTRY_SUFFIXES = new Set([
+  "ca", "de", "fr", "es", "it", "nl", "se", "no", "dk", "fi", "pl", "ie", "at", "be", "ch", "pt", "cz", "in", "jp", "co.jp",
+  "co.uk", "uk", "com.au", "au", "nz", "co.nz", "com.br", "br", "mx", "com.mx", "sg", "com.sg", "kr", "co.kr", "cn", "com.tr",
+]);
+const labelOf = (reg: string) => reg.split(".")[0]!;
+/** True for the same brand name under a known country suffix, e.g. amazon.ca vs amazon.com. */
+export function isBrandCountryDomain(reg: string, protectedDomain: string): boolean {
+  const label = labelOf(protectedDomain);
+  return labelOf(reg) === label && reg !== protectedDomain && COUNTRY_SUFFIXES.has(reg.slice(label.length + 1));
+}
+
 const lookalike: Detector = (e, ctx) => {
   const host = domainOf(e.from.address);
   const reg = registrableDomain(host);
   const out: (Flag | null)[] = [];
   for (const raw of ctx.settings.protectedDomains) {
     const p = raw.toLowerCase();
-    if (reg === p) continue; // exact match (or a real subdomain of it)
+    if (reg === p || isBrandCountryDomain(reg, p)) continue; // exact match, a real subdomain, or the brand's own country domain
     const label = p.split(".")[0]!;
     const max = label.length <= 4 ? 1 : 2;
     const segs = reg.split(".")[0]!.split("-");
     const close = damerau(reg, p) <= max || skeleton(reg) === skeleton(p) || (segs.length > 1 && segs.some((s) => skeleton(s) === skeleton(label)));
-    const trick = (host === p + "." + reg || host.includes(p + ".")) && reg !== p; // paypal.com.evil.io
+    const trick = ("." + host + ".").includes("." + p + ".") && reg !== p; // paypal.com.evil.io (whole labels only)
     if (close || trick) {
       out.push(fl(ctx, "lookalike_domain", `${host} resembles ${p}`));
       break;
@@ -78,7 +90,7 @@ const displayName: Detector = (e, ctx) => {
     const p = raw.toLowerCase();
     const label = p.split(".")[0]!;
     const words = name.split(" ").map((w) => w.replace(/[^a-z0-9]/g, ""));
-    if (words.includes(label) && reg !== p) {
+    if (words.includes(label) && reg !== p && !isBrandCountryDomain(reg, p)) {
       return compact([fl(ctx, "display_name_impersonation", `Name "${e.from.name}" claims ${label} but sent from ${reg}`)]);
     }
   }
@@ -95,11 +107,10 @@ const replyTo: Detector = (e, ctx) => {
 const SHORTENERS = new Set(["bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly", "rebrand.ly", "cutt.ly", "shorturl.at"]);
 /** Email-service providers whose click-tracking redirects legitimately differ from the visible link text. */
 export const TRACKING_DOMAINS = new Set([
-  "inflection.io", "klclick1.com", "klclick.com", "pstmrk.it", "sendgrid.net", "mailchimp.com", "list-manage.com",
-  "mandrillapp.com", "hubspotlinks.com", "hs-sites.com", "mkto-ab.com", "mktoweb.com", "sparkpostmail.com",
-  "amazonses.com", "rs6.net", "constantcontact.com", "exct.net", "sailthru.com", "customeriomail.com", "mailgun.org",
-  "braze.com", "iterable.com", "campaign-archive.com", "convertkit-mail.com", "ck.page",
-]);
+  "inflection.io", "klclick1.com", "klclick.com", "pstmrk.it", "sendgrid.net", "list-manage.com",
+  "mandrillapp.com", "hubspotlinks.com", "mkto-ab.com", "sparkpostmail.com",
+  "amazonses.com", "rs6.net", "exct.net", "sailthru.com", "customeriomail.com", "mailgun.org", "convertkit-mail.com",
+]); // pure click-tracking redirect hosts only; page-hosting platforms (hs-sites.com, ck.page, ...) are deliberately absent
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 const LOOKS_LIKE_DOMAIN = /^(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?:[/:?#]|$)/i;
 
@@ -107,10 +118,19 @@ const links: Detector = async (e, ctx) => {
   const out: (Flag | null)[] = [];
   for (const l of e.links) {
     const m = LOOKS_LIKE_DOMAIN.exec(l.text.trim());
-    if (m && registrableDomain(m[1]!) !== registrableDomain(l.domain) && !TRACKING_DOMAINS.has(registrableDomain(l.domain))) {
+    const textReg = m ? registrableDomain(m[1]!) : "";
+    const hrefReg = registrableDomain(l.domain);
+    const senderReg = registrableDomain(e.from.address);
+    // A click-tracking redirect is trusted unless the visible text names a protected brand the sender is not.
+    const protectedText = ctx.settings.protectedDomains.some((p) => p.toLowerCase() === textReg);
+    const ownTracking = TRACKING_DOMAINS.has(hrefReg) && (textReg === senderReg || !protectedText);
+    if (m && textReg !== hrefReg && !ownTracking) {
       const flag = fl(ctx, "link_text_mismatch", `Link says ${m[1]} but goes to ${l.domain}`);
-      // Authenticated senders (DKIM + DMARC pass) get half weight, unless the user set an explicit weight.
-      if (flag && !ctx.settings.flags.link_text_mismatch && e.auth.dkim === "pass" && e.auth.dmarc === "pass") flag.weight = Math.round(flag.weight / 2);
+      // Halve for an authenticated sender linking to its own site or its own brand (strato.se -> strato.com).
+      // Never when the text names a protected brand: attackers pass DKIM/DMARC on their own domains.
+      const authed = e.auth.dkim === "pass" && e.auth.dmarc === "pass";
+      const ownBrand = textReg === senderReg || labelOf(textReg) === labelOf(hrefReg);
+      if (flag && !ctx.settings.flags.link_text_mismatch && authed && ownBrand && !protectedText) flag.weight = Math.round(flag.weight / 2);
       out.push(flag);
       break;
     }
@@ -165,7 +185,16 @@ const attachments: Detector = (e, ctx) => {
 const URGENCY = ["account suspended", "suspended", "within 24 hours", "immediately", "urgent", "final notice", "verify your account", "will be closed"];
 const CREDENTIALS = ["password", "verify your identity", "gift card", "wire transfer", "bank details", "bank account", "credit card", "social security", "login credentials", "update your payment"];
 const GREETINGS = ["dear customer", "dear user", "dear sir", "dear valued", "dear account holder", "dear client"];
-const hasPhrase = (text: string, list: string[]) => list.find((p) => text.includes(p));
+/** Whole-word phrase match: "urgent" must not match "insurgent". */
+const hasPhrase = (text: string, list: string[]) =>
+  list.find((p) => {
+    for (let i = text.indexOf(p); i !== -1; i = text.indexOf(p, i + 1)) {
+      const before = text[i - 1];
+      const after = text[i + p.length];
+      if (!(before && /[a-z0-9]/.test(before)) && !(after && /[a-z0-9]/.test(after))) return true;
+    }
+    return false;
+  });
 
 const content: Detector = (e, ctx) => {
   const t = (e.subject + " " + e.text).toLowerCase();
@@ -192,7 +221,8 @@ export async function runDetectors(email: ParsedEmail, ctx: DetectorContext): Pr
     [authentication, lookalike, displayName, replyTo, links, newDomain, attachments, content, trust].map(async (d) => d(email, ctx)),
   );
   const all = results.flat();
-  const otherSignal = all.some((f) => f.weight > 0 && !CONTENT_IDS.has(f.id));
+  // Per the plan, content flags need a sender or link signal; missing DKIM etc. alone is too common to unlock them.
+  const otherSignal = all.some((f) => f.weight > 0 && (f.category === "sender" || f.category === "links"));
   return all.filter((f) => !CONTENT_IDS.has(f.id) || otherSignal);
 }
 

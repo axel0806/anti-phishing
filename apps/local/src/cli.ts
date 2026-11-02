@@ -2,10 +2,11 @@ import { readFileSync, existsSync } from "node:fs";
 import { exec } from "node:child_process";
 import { GmailProvider, loadTokens, saveTokens, signIn, tokenSource, type OAuthConfig } from "@ap/mail";
 import { DEFAULT_SETTINGS } from "@ap/shared";
-import { scanInbox, type VerdictStore } from "./runner.ts";
+import { loadStore, saveStore, scanInbox } from "./runner.ts";
 import { createVerdictServer } from "./server.ts";
 
 const TOKENS = ".tokens.json";
+const VERDICTS = ".verdicts.json";
 const PORT = 8787;
 
 function loadEnv(): Record<string, string> {
@@ -49,14 +50,20 @@ if (cmd === "login") {
   if (!tokens) { console.error("Not signed in. Run: npm run login"); process.exit(1); }
   const provider = new GmailProvider(tokenSource(cfg, tokens, (t) => saveTokens(TOKENS, t)));
   const settings = { ...DEFAULT_SETTINGS, shadowMode: !act };
-  const store: VerdictStore = new Map();
+  const store = loadStore(VERDICTS);
   console.log(act ? "ACT mode: phishing is moved to the 'Phishing' label; suspicious gets 'Suspicious'." : "SHADOW mode: scoring and logging only, no mail is changed. Use --act to enable.");
 
+  let running = false;
   const pass = async () => {
+    if (running) return; // never overlap passes
+    running = true;
+    try {
     for (const id of await scanInbox(provider, settings, store)) {
       const s = store.get(id)!;
       console.log(`${s.verdict.verdict.padEnd(10)} ${String(s.verdict.score).padStart(3)}  ${id}  ${s.verdict.flags.map((f) => f.id).join(",")}  -> ${s.action}`);
     }
+    saveStore(VERDICTS, store);
+    } finally { running = false; }
   };
   await pass();
   if (!once) {

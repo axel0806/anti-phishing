@@ -6,18 +6,30 @@ import type { AuthResult, ParsedEmail } from "@ap/shared";
 
 const AUTH_VALUES = new Set(["pass", "fail", "softfail", "none"]);
 
+const TRUSTED_AUTHSERV_IDS = ["mx.google.com"];
+const rank = (v: AuthResult): number => (v === "pass" ? 3 : v === "fail" || v === "softfail" ? 2 : v === "none" ? 1 : 0);
+
+/** Reads spf/dkim/dmarc from one Authentication-Results value. With several results for a method (e.g. multiple DKIM signatures) any pass wins. */
 export function parseAuthResults(header: string | undefined): ParsedEmail["auth"] {
   const out: ParsedEmail["auth"] = { spf: "missing", dkim: "missing", dmarc: "missing" };
   if (!header) return out;
+  const parts = header.split(";").map((p) => p.trim().toLowerCase());
   for (const k of ["spf", "dkim", "dmarc"] as const) {
-    const part = header.split(";").map((p) => p.trim().toLowerCase()).find((p) => p.startsWith(k + "="));
-    const m = part ? /^[a-z]+=([a-z]+)/.exec(part) : null;
-    if (m) {
-      const v = m[1]!.toLowerCase();
-      out[k] = (AUTH_VALUES.has(v) ? v : "none") as AuthResult;
+    for (const part of parts) {
+      if (!part.startsWith(k + "=")) continue;
+      const m = /^[a-z]+=([a-z]+)/.exec(part);
+      if (!m) continue;
+      const v = (AUTH_VALUES.has(m[1]!) ? m[1] : "none") as AuthResult;
+      if (rank(v) > rank(out[k])) out[k] = v;
     }
   }
   return out;
+}
+
+/** Only trusts an Authentication-Results header written by our own receiving server (authserv-id); anything else could be forged by the sender. */
+export function pickAuthResults(values: string[], trusted: string[] = TRUSTED_AUTHSERV_IDS): ParsedEmail["auth"] {
+  const own = values.find((v) => trusted.includes((v.split(";")[0] ?? "").trim().toLowerCase().split(" ")[0] ?? ""));
+  return parseAuthResults(own);
 }
 
 type Node5 = { nodeName: string; attrs?: { name: string; value: string }[]; childNodes?: Node5[]; value?: string };
@@ -38,6 +50,13 @@ export function extractLinks(html: string): ParsedEmail["links"] {
   return links;
 }
 
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
+
+/** URLs in plain-text bodies; text and href are the same string. */
+export function extractTextLinks(text: string): ParsedEmail["links"] {
+  return (text.match(URL_RE) ?? []).map((u) => ({ text: u, href: u, domain: getHostname(u) ?? "" }));
+}
+
 const ENCRYPTED_ZIP_FLAG = 0x0001;
 /** Detects ZIP entries with the encryption bit set in any local file header. */
 export function zipIsEncrypted(buf: Buffer): boolean {
@@ -55,8 +74,7 @@ export async function parseEmail(rawMime: Buffer, providerMessageId: string): Pr
   for (const [k, v] of m.headerLines.map((h) => [h.key, h.line.slice(h.key.length + 1).trim()] as const)) {
     (headers[k] ??= []).push(v);
   }
-  // Topmost Authentication-Results is the one prepended by the receiving MTA; earlier hops can be forged.
-  const auth = parseAuthResults(headers["authentication-results"]?.[0]);
+  const auth = pickAuthResults(headers["authentication-results"] ?? []);
 
   const from = m.from?.value[0];
   const replyTo = m.replyTo?.value[0]?.address;
@@ -67,7 +85,7 @@ export async function parseEmail(rawMime: Buffer, providerMessageId: string): Pr
     replyTo: replyTo?.toLowerCase(),
     returnPath: headers["return-path"]?.[0]?.replace(/[<>]/g, ""),
     subject: m.subject ?? "", text: m.text ?? "", html, headers, auth,
-    links: html ? extractLinks(html) : [],
+    links: html ? extractLinks(html) : extractTextLinks(m.text ?? ""),
     attachments: m.attachments.map((a) => ({
       name: a.filename ?? "", mime: a.contentType, size: a.size,
       sha256: createHash("sha256").update(a.content).digest("hex"),

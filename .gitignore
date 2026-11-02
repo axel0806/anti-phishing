@@ -11,3 +11,4 @@ corpus/legit/*
 .tokens.json
 apps/extension/dist
 apps/extension/dist-firefox
+.verdicts.json

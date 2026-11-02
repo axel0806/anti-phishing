@@ -1,4 +1,4 @@
-Authentication-Results: mx.example.net; spf=pass; dkim=pass; dmarc=pass
+Authentication-Results: mx.google.com; spf=pass; dkim=pass; dmarc=pass
 From: "Shop News" <news@shop.example>
 To: me@example.com
 Subject: Final notice: sale ends today, act immediately

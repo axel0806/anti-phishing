@@ -10,5 +10,5 @@ const tokens = loadTokens(".tokens.json")!;
 const g = new GmailProvider(tokenSource(cfg, tokens, (t) => saveTokens(".tokens.json", t)));
 for (const id of await g.listRecentInbox(25)) {
   const v = await scanRaw(await g.fetchRaw(id), id, DEFAULT_SETTINGS);
-  if (v.flags.length) console.log(id, v.flags.map((f) => f.evidence).join(" | "));
+  if (v.flags.length) { const e = await (await import("@ap/parser")).parseEmail(await g.fetchRaw(id), id); console.log(id, "from-domain:", e.from.address.split("@")[1], "|", v.flags.map((f) => f.evidence).join(" | ")); }
 }

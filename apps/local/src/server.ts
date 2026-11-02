@@ -1,18 +1,17 @@
 import { createServer, type Server } from "node:http";
 import type { VerdictStore } from "./runner.ts";
 
-const ALLOWED_ORIGIN = "https://mail.google.com";
-
-/** Read-only verdict API on localhost; same shape as the Phase 2 `/v1/messages/:id/verdict`. */
+/** Read-only verdict API on localhost, no CORS (the extension fetches from its background script); same shape as the Phase 2 `/v1/messages/:id/verdict`. */
 export function createVerdictServer(store: VerdictStore): Server {
   return createServer((req, res) => {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-      Vary: "Origin",
-    };
+    // Only loopback Host headers are served: a DNS-rebinding page reaches this port with its own hostname.
+    const host = (req.headers.host ?? "").replace(/:\d+$/, "").toLowerCase();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (host !== "127.0.0.1" && host !== "localhost") {
+      res.writeHead(403, headers).end(JSON.stringify({ error: { code: "forbidden", message: "Bad host" } }));
+      return;
+    }
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    if (req.method === "OPTIONS") { res.writeHead(204, { ...headers, "Access-Control-Allow-Methods": "GET" }).end(); return; }
     if (url.pathname === "/v1/health") { res.writeHead(200, headers).end(JSON.stringify({ version: "0.1.0", apiVersions: ["v1"] })); return; }
     const m = /^\/v1\/messages\/([A-Za-z0-9_-]+)\/verdict$/.exec(url.pathname);
     if (req.method !== "GET" || !m) { res.writeHead(404, headers).end(JSON.stringify({ error: { code: "not_found", message: "Not found" } })); return; }

@@ -59,8 +59,8 @@ describe("detectors", () => {
   it("content flags only fire together with a sender-level signal for urgency", async () => {
     const urgent = base({ subject: "Account suspended", text: "Act within 24 hours or your account suspended." });
     expect(await ids(urgent)).not.toContain("urgency");
-    expect(await ids({ ...urgent, auth: { spf: "fail", dkim: "pass", dmarc: "pass" } })).toContain("urgency");
-    expect(await ids({ ...urgent, auth: { spf: "fail", dkim: "pass", dmarc: "pass" }, text: "Please verify your password and send gift card" })).toContain("credential_request");
+    expect(await ids({ ...urgent, replyTo: "x@other.org" })).toContain("urgency");
+    expect(await ids({ ...urgent, replyTo: "x@other.org", text: "Please verify your password and send gift card" })).toContain("credential_request");
   });
   it("trusted contact subtracts; flag overrides disable and reweight", async () => {
     const h = { ...ctx, senderHistory: { messagesReceived: 5, userReplied: true } };

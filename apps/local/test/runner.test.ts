@@ -50,7 +50,7 @@ describe("scanInbox", () => {
 });
 
 describe("verdict server", () => {
-  it("serves stored verdicts with CORS for Gmail only, 404 otherwise", async () => {
+  it("serves stored verdicts without CORS, 404 otherwise", async () => {
     const store: VerdictStore = new Map();
     const { p } = fakeProvider();
     await scanInbox(p, { ...DEFAULT_SETTINGS, shadowMode: true }, store);
@@ -59,7 +59,7 @@ describe("verdict server", () => {
     const port = (srv.address() as AddressInfo).port;
     const ok = await fetch(`http://127.0.0.1:${port}/v1/messages/p1/verdict`);
     expect(ok.status).toBe(200);
-    expect(ok.headers.get("access-control-allow-origin")).toBe("https://mail.google.com");
+    expect(ok.headers.get("access-control-allow-origin")).toBeNull();
     expect((await ok.json()).verdict.verdict).toBe("phishing");
     expect((await fetch(`http://127.0.0.1:${port}/v1/messages/zzz/verdict`)).status).toBe(404);
     srv.close();

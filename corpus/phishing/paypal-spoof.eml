@@ -1,4 +1,4 @@
-Authentication-Results: mx.example.net; spf=fail; dkim=none; dmarc=fail
+Authentication-Results: mx.google.com; spf=fail; dkim=none; dmarc=fail
 From: "PayPal Support" <help@paypa1-secure.net>
 To: me@example.com
 Subject: Urgent: your account suspended
