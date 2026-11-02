@@ -81,7 +81,8 @@ create table feedback (
 /** Applies pending migrations inside a transaction each; safe to call on every start. */
 export async function migrate(db: Db): Promise<string[]> {
   await db.execute(sql`create table if not exists schema_migrations (id text primary key, applied_at timestamptz not null default now())`);
-  const done = new Set((await db.execute(sql`select id from schema_migrations`)).rows.map((r) => (r as { id: string }).id));
+  const res = (await db.execute(sql`select id from schema_migrations`)) as unknown as { rows: { id: string }[] };
+  const done = new Set(res.rows.map((r) => r.id));
   const applied: string[] = [];
   for (const m of MIGRATIONS) {
     if (done.has(m.id)) continue;
