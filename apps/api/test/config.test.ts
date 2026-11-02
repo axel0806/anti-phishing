@@ -35,3 +35,21 @@ describe("retention config", () => {
     expect(() => loadConfig({ ...good, RETENTION_DAYS: "0" })).toThrow(/RETENTION_DAYS/);
   });
 });
+
+describe("OIDC single sign-on config", () => {
+  const sso = { OIDC_ISSUER: "https://login.example/", OIDC_CLIENT_ID: "cid", OIDC_CLIENT_SECRET: "sec", PUBLIC_URL: "https://phish.example/" };
+  it("is off by default", () => expect(loadConfig(good).oidc).toBeNull());
+  it("derives the redirect URI from PUBLIC_URL", () => {
+    expect(loadConfig({ ...good, ...sso }).oidc).toMatchObject({ issuer: "https://login.example/", clientId: "cid", redirectUri: "https://phish.example/admin/callback", trustMissingEmailVerified: false });
+    expect(loadConfig({ ...good, ...sso, OIDC_TRUST_MISSING_EMAIL_VERIFIED: "true" }).oidc!.trustMissingEmailVerified).toBe(true);
+  });
+  it("refuses a half-configured or insecure setup", () => {
+    expect(() => loadConfig({ ...good, OIDC_ISSUER: "https://login.example" })).toThrow(/OIDC_CLIENT_ID/);
+    expect(() => loadConfig({ ...good, ...sso, PUBLIC_URL: undefined })).toThrow(/PUBLIC_URL/);
+    expect(() => loadConfig({ ...good, ...sso, PUBLIC_URL: "http://phish.example" })).toThrow(/https/);
+    expect(() => loadConfig({ ...good, ...sso, OIDC_ISSUER: "http://login.example" })).toThrow(/https/);
+  });
+  it("allows plain http only for localhost development", () => {
+    expect(() => loadConfig({ ...good, ...sso, PUBLIC_URL: "http://localhost:8080", OIDC_ISSUER: "http://localhost:9000" })).not.toThrow();
+  });
+});

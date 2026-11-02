@@ -38,3 +38,18 @@ export function decryptSecret(keyHex: string, blob: string): string {
   d.setAuthTag(tag!);
   return Buffer.concat([d.update(enc!), d.final()]).toString("utf8");
 }
+
+/** Signed (not encrypted) blob for short-lived browser state, e.g. the OIDC login cookie. Domain-separated from session tokens. */
+export function signBlob(secret: string, data: string): string {
+  const body = b64(data);
+  return `${body}.${b64(createHmac("sha256", secret).update("blob." + body).digest())}`;
+}
+
+export function verifyBlob(secret: string, blob: string): string | null {
+  const [body, sig] = blob.split(".");
+  if (!body || !sig) return null;
+  const expected = createHmac("sha256", secret).update("blob." + body).digest();
+  const given = Buffer.from(sig, "base64url");
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  return Buffer.from(body, "base64url").toString("utf8");
+}

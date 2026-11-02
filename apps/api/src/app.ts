@@ -5,6 +5,7 @@ import { ListEntrySchema } from "@ap/shared";
 import type { AdminQueries, Store, User } from "@ap/db";
 import { signToken, verifyToken } from "./auth.ts";
 import { registerAdminRoutes } from "./adminRoutes.ts";
+import { Oidc, OidcError } from "./oidc.ts";
 import { fail } from "./errors.ts";
 import type { Metrics } from "./metrics.ts";
 import { MailUnavailable, ScanInProgress, type ScanService } from "./service.ts";
@@ -19,6 +20,8 @@ export interface AppDeps {
   /** Enables the /v1/admin dashboard API, the audit log and weight suggestions. */
   admin?: AdminQueries;
   metrics?: Metrics;
+  /** Single sign-on for the admin dashboard. */
+  oidc?: Oidc;
   /** Bearer token for /metrics from non-loopback hosts. Without it, only loopback callers may read metrics. */
   metricsToken?: string;
 }
@@ -52,6 +55,41 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (status && status < 500) return fail(reply, "validation", (err as Error).message);
     return reply.code(500).send({ error: { code: "internal", message: "Internal error" } });
   });
+
+  // ---- admin SSO (OIDC). Only existing users with a dashboard role may sign in; accounts are never created here. ----
+  if (deps.oidc) {
+    const oidc = deps.oidc;
+    const COOKIE = "ap_oidc";
+    const cookieAttrs = (maxAge: number) => `; Path=/admin; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${oidc.secureCookie ? "; Secure" : ""}`;
+    const text = (reply: FastifyReply, code: number, msg: string) => reply.code(code).header("content-type", "text/plain; charset=utf-8").send(msg);
+
+    app.get("/admin/login", async (_req, reply) => {
+      try {
+        const s = await oidc.start();
+        return reply.header("set-cookie", `${COOKIE}=${s.cookie}${cookieAttrs(s.maxAge)}`).header("cache-control", "no-store").redirect(s.url);
+      } catch {
+        return text(reply, 502, "Single sign-on is temporarily unavailable.");
+      }
+    });
+
+    app.get<{ Querystring: { code?: string; state?: string } }>("/admin/callback", async (req, reply) => {
+      const cookie = /(?:^|; )ap_oidc=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];
+      const clear = `${COOKIE}=${cookieAttrs(0)}`;
+      try {
+        const { email } = await oidc.finish({ code: req.query.code, state: req.query.state }, cookie);
+        const user = await store.getUserByEmail(email);
+        if (!user || (user.role !== "admin" && user.role !== "analyst" && user.role !== "viewer")) {
+          return reply.header("set-cookie", clear).code(403).header("content-type", "text/plain; charset=utf-8").send("Your account is not set up for the dashboard. Ask an administrator.");
+        }
+        const token = signToken(secret, { uid: user.id, sid: serverId, exp: Math.floor(Date.now() / 1000) + 8 * 3600 });
+        // In the fragment so it is never sent to a server, logged, or leaked through Referer; the page moves it to sessionStorage.
+        return reply.header("set-cookie", clear).header("cache-control", "no-store").redirect(`/admin/#token=${token}`);
+      } catch (e) {
+        const msg = e instanceof OidcError ? "Sign-in failed. Please try again." : "Sign-in failed.";
+        return reply.header("set-cookie", clear).code(400).header("content-type", "text/plain; charset=utf-8").send(msg);
+      }
+    });
+  }
 
   app.get("/v1/health", async () => ({ version: API_VERSION, serverId, apiVersions: ["v1"] }));
 

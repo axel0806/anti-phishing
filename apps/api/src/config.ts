@@ -12,6 +12,14 @@ export interface AiConfig {
   price: { inputPerMTokUsd: number; outputPerMTokUsd: number };
 }
 
+export interface OidcSettings {
+  issuer: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  trustMissingEmailVerified: boolean;
+}
+
 export interface Config {
   port: number;
   role: "api" | "worker" | "all";
@@ -25,6 +33,8 @@ export interface Config {
   /** Lets a Prometheus server on another host read /metrics. Loopback callers never need it. */
   metricsToken: string | undefined;
   retentionDays: number;
+  /** Single sign-on for the admin dashboard; null = sign in with a session token only. */
+  oidc: OidcSettings | null;
   /** Network lookups used by the detectors. Both are opt-in because they send data (a domain name / a URL path) to a third party. */
   lookups: { rdap: boolean; safeBrowsingKey: string | undefined };
   /** null = the server offers no AI layer at all, whatever users enable. */
@@ -85,12 +95,28 @@ export function loadConfig(env: Env): Config {
       ai = { kind, apiKey: env.AI_API_KEY || undefined, model: env.AI_MODEL ?? "", baseUrl: env.AI_BASE_URL, timeoutMs, maxUserBudgetUsd, price: { inputPerMTokUsd: pin, outputPerMTokUsd: pout } };
     } else problems.push("AI_PROVIDER must be none, anthropic or openai");
   }
+  let oidc: OidcSettings | null = null;
+  const oidcKeys = ["OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"] as const;
+  if (oidcKeys.some((k) => env[k])) {
+    for (const k of oidcKeys) if (!env[k]) problems.push(`${k} is required when single sign-on is configured`);
+    if (!env.PUBLIC_URL) problems.push("PUBLIC_URL (the address users reach this server at) is required for single sign-on");
+    const secureOrLocal = (u: string) => { try { const x = new URL(u); return x.protocol === "https:" || (x.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(x.hostname)); } catch { return false; } };
+    if (env.OIDC_ISSUER && !secureOrLocal(env.OIDC_ISSUER)) problems.push("OIDC_ISSUER must be an https URL");
+    if (env.PUBLIC_URL && !secureOrLocal(env.PUBLIC_URL)) problems.push("PUBLIC_URL must be an https URL (http is allowed for localhost only)");
+    if (oidcKeys.every((k) => env[k]) && env.PUBLIC_URL) {
+      oidc = {
+        issuer: env.OIDC_ISSUER!, clientId: env.OIDC_CLIENT_ID!, clientSecret: env.OIDC_CLIENT_SECRET!,
+        redirectUri: env.PUBLIC_URL.replace(/\/+$/, "") + "/admin/callback",
+        trustMissingEmailVerified: env.OIDC_TRUST_MISSING_EMAIL_VERIFIED === "true",
+      };
+    }
+  }
   if (problems.length) throw new Error("Invalid configuration:\n- " + problems.join("\n- "));
 
   const clientId = env.GOOGLE_CLIENT_ID ?? env.CLIENT_ID;
   const clientSecret = env.GOOGLE_CLIENT_SECRET ?? env.CLIENT_SECRET;
   return {
-    port, role, pollSeconds, secret, tokenKey, retentionDays, ai,
+    port, role, pollSeconds, secret, tokenKey, retentionDays, ai, oidc,
     lookups: { rdap: env.RDAP_LOOKUPS === "true", safeBrowsingKey: env.SAFE_BROWSING_API_KEY || undefined },
     databaseUrl: env.DATABASE_URL || undefined,
     // Derived, not secret: lets clients tell servers apart and scopes session tokens to this one.

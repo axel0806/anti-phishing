@@ -1,6 +1,7 @@
 import { AdminQueries, connect, Store } from "@ap/db";
 import { buildApp } from "./app.ts";
 import { loadConfig } from "./config.ts";
+import { Oidc } from "./oidc.ts";
 import { loadDotEnv } from "./env.ts";
 import { aiProviderFromConfig } from "./aiProvider.ts";
 import { createLookups } from "./lookups.ts";
@@ -24,7 +25,7 @@ const service = new ScanService({
 if (cfg.ai) console.log(`AI layer available: ${cfg.ai.kind}/${cfg.ai.model} (off for each user until they enable it)`);
 
 if (cfg.role !== "worker") {
-  const app = buildApp({ store, service, admin, metrics, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
+  const app = buildApp({ store, service, admin, metrics, oidc: cfg.oidc ? new Oidc({ ...cfg.oidc, secret: cfg.secret }) : undefined, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
   await app.listen({ port: cfg.port, host: "0.0.0.0" });
   console.log(`API listening on :${cfg.port} (server id ${cfg.serverId})`);
 }
