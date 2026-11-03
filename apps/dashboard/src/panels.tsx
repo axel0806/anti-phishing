@@ -24,7 +24,7 @@ export function Overview({ api, me }: { api: Api; me: Me }) {
   const targets = useLoad(() => api.get<{ impersonated: { evidence: string; count: number }[]; senderDomains: { domain: string; count: number }[] }>(stats(api, "targets", range)), [range.from, range.to]);
   const quality = useLoad(() => api.get<{ falsePositives: number; missesReported: number }>(stats(api, "quality", range)), [range.from, range.to]);
   const ai = useLoad(() => api.get<{ calls: number; costUsd: number; escalated: number; scanned: number; escalatedShare: number }>(stats(api, "ai", range)), [range.from, range.to]);
-  const health = useLoad(() => api.get<{ scans24h: number; p50Ms: number; p95Ms: number; lastScanAt: string | null; linkedMailboxes: number }>(stats(api, "health", range)), []);
+  const health = useLoad(() => api.get<{ scans24h: number; p50Ms: number; p95Ms: number; lastScanAt: string | null; linkedMailboxes: number; worker: { mailboxes: number; neverSynced: number; erroring: number; stale: number; maxLagSeconds: number } }>(stats(api, "health", range)), []);
   const users = useLoad(() => (atLeast(me.role, "admin") ? api.get<{ rows: { email: string; phishing: number; suspicious: number }[] }>(stats(api, "users", range)) : Promise.resolve(null)), [range.from, range.to, me.role]);
   const c = ov.data?.current, p = ov.data?.previous;
 
@@ -81,6 +81,7 @@ export function Overview({ api, me }: { api: Api; me: Me }) {
               <Stat label="Scans, last 24h" value={health.data.scans24h} />
               <Stat label="Latency p50 / p95" value={`${Math.round(health.data.p50Ms)} / ${Math.round(health.data.p95Ms)} ms`} />
               <Stat label="Linked mailboxes" value={health.data.linkedMailboxes} />
+              <Stat label="Mailbox sync lag (max)" value={health.data.worker.mailboxes ? `${Math.round(health.data.worker.maxLagSeconds / 60)} min` : "n/a"} sub={`${health.data.worker.erroring} erroring, ${health.data.worker.stale} stale, ${health.data.worker.neverSynced} never synced`} />
               <Stat label="Last scan" value={health.data.lastScanAt ? new Date(health.data.lastScanAt).toLocaleString() : "never"} />
             </div>
           )}

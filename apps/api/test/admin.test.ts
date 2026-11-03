@@ -209,3 +209,16 @@ describe("metrics", () => {
     expect(out).toMatch(/lat_bucket\{le="\+Inf"\} 4/);
   });
 });
+
+describe("health panel shows mailbox sync state", () => {
+  it("includes worker lag and error counts, never provider error text", async () => {
+    await store.setEncryptedTokens(member.id, "blob");
+    await store.leaseMailbox(member.id, 60);
+    await store.releaseMailbox(member.id, { ok: false, error: "secret provider detail" });
+    const r = await get(viewer, "/v1/admin/stats/health");
+    expect(r.json().worker).toMatchObject({ mailboxes: 1, erroring: 1 });
+    expect(r.body).not.toContain("secret provider detail");
+    const csv = await get(viewer, "/v1/admin/stats/health?format=csv");
+    expect(csv.body.split("\n")[0]).toContain("workerErroring");
+  });
+});

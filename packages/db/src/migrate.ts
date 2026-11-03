@@ -122,6 +122,17 @@ create table audit_log (
 );
 create index audit_log_org_created on audit_log (org_id, created_at desc);`,
   },
+  {
+    id: "0006_mailbox_state",
+    sql: `
+create table mailbox_state (
+  user_id uuid primary key references users(id) on delete cascade,
+  leased_until timestamptz,
+  last_attempt_at timestamptz,
+  last_success_at timestamptz,
+  last_error text
+);`,
+  },
 ];
 
 /** Arbitrary constant: every process that migrates takes the same lock, so API and worker can start together. */

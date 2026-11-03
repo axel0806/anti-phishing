@@ -77,6 +77,47 @@ export class Store {
       return r.length > 0;
     });
   }
+  // ---- worker coordination: one worker per mailbox at a time, and visible lag ----
+  private async rows(q: ReturnType<typeof sql>): Promise<Record<string, unknown>[]> {
+    return ((await this.db.execute(q)) as unknown as { rows: Record<string, unknown>[] }).rows;
+  }
+  /** Takes the mailbox for `seconds` if nobody else holds it. A crashed worker's lease simply expires. */
+  async leaseMailbox(userId: string, seconds: number): Promise<boolean> {
+    const r = await this.rows(sql`
+      insert into mailbox_state (user_id, leased_until) values (${userId}, now() + (${seconds} * interval '1 second'))
+      on conflict (user_id) do update set leased_until = excluded.leased_until
+        where mailbox_state.leased_until is null or mailbox_state.leased_until <= now()
+      returning user_id`);
+    return r.length > 0;
+  }
+  async releaseMailbox(userId: string, r: { ok: boolean; error?: string }): Promise<void> {
+    await this.db.execute(sql`
+      update mailbox_state set leased_until = null, last_attempt_at = now(),
+        last_success_at = case when ${r.ok} then now() else last_success_at end,
+        last_error = case when ${r.ok} then null else ${(r.error ?? "error").slice(0, 300)} end
+      where user_id = ${userId}`);
+  }
+  /** Counts only, never provider error text: this feeds the dashboard. */
+  async mailboxHealth(orgId: string): Promise<{ mailboxes: number; neverSynced: number; erroring: number; stale: number; maxLagSeconds: number }> {
+    const [r] = await this.rows(sql`
+      select count(*) as n,
+        count(*) filter (where m.last_success_at is null) as never_synced,
+        count(*) filter (where m.last_error is not null) as erroring,
+        count(*) filter (where m.last_success_at < now() - interval '10 minutes') as stale,
+        coalesce(max(extract(epoch from (now() - m.last_success_at))), 0) as lag
+      from users u left join mailbox_state m on m.user_id = u.id
+      where u.org_id = ${orgId} and u.encrypted_tokens is not null`);
+    const n = (v: unknown) => Number(v ?? 0);
+    return { mailboxes: n(r?.n), neverSynced: n(r?.never_synced), erroring: n(r?.erroring), stale: n(r?.stale), maxLagSeconds: Math.round(n(r?.lag)) };
+  }
+  /** Which of these message ids were already handled (acted on, or judged by the user)? One query instead of one per message. */
+  async handledIds(userId: string, ids: string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
+    const rows = await this.db.select({ id: scans.providerMessageId, pinned: scans.pinned, action: scans.action }).from(scans)
+      .where(and(eq(scans.userId, userId), inArray(scans.providerMessageId, ids)));
+    return new Set(rows.filter((r) => r.pinned || r.action !== null).map((r) => r.id));
+  }
+
   /** Users whose mailbox is linked: the worker scans these. */
   async listLinkedUsers(): Promise<User[]> {
     const rows = await this.db.select().from(users).where(sql`${users.encryptedTokens} is not null`);

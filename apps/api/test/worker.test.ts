@@ -122,3 +122,68 @@ describe("worker metrics", () => {
     expect(metrics.render()).toContain(`provider_errors_total ${linked}`);
   });
 });
+
+describe("worker ingest", () => {
+  const inboxOf = (n: number) => Array.from({ length: n }, (_, i) => `burst${i}`);
+  const lunch = eml("legit/lunch.eml");
+  const burstMail = (ids: string[], seen: string[] = []): MailProvider => ({
+    fetchRaw: async (id) => { seen.push(id); return lunch; }, move: async () => {}, addLabel: async () => {}, ensureFolder: async (n) => n,
+    listRecentInbox: async (max = 25) => ids.slice(0, max), getLabelNames: async () => [], watch: async () => {}, unmove: async () => {},
+  });
+
+  it("does not miss mail when more than 25 messages arrive between passes", async () => {
+    const u = await store.createUser({ email: "burst@example.com" });
+    await store.setEncryptedTokens(u.id, "blob");
+    const seen: string[] = [];
+    const m = burstMail(inboxOf(60), seen);
+    const r = await runWorkerPass(store, new ScanService({ store, mailFor: () => m }), (x) => (x.id === u.id ? m : null));
+    expect(new Set(seen).size).toBe(60);
+    expect(r.scanned).toBe(60);
+  });
+
+  it("works on several mailboxes at once, but never more than the configured number", async () => {
+    let live = 0, peak = 0;
+    const slow: MailProvider = { ...burstMail([]), listRecentInbox: async () => { live++; peak = Math.max(peak, live); await new Promise((r) => setTimeout(r, 20)); live--; return []; } };
+    for (let i = 0; i < 6; i++) { const u = await store.createUser({ email: `par${i}@example.com` }); await store.setEncryptedTokens(u.id, "blob"); }
+    await runWorkerPass(store, new ScanService({ store, mailFor: () => slow }), (x) => (x.email.startsWith("par") ? slow : null), { concurrency: 3 });
+    expect(peak).toBe(3);
+  });
+
+  it("two workers on the same mailbox do not both process it", async () => {
+    const u = await store.createUser({ email: "lease@example.com" });
+    await store.setEncryptedTokens(u.id, "blob");
+    let lists = 0;
+    const m: MailProvider = { ...burstMail([]), listRecentInbox: async () => { lists++; await new Promise((r) => setTimeout(r, 30)); return []; } };
+    const svc = new ScanService({ store, mailFor: () => m });
+    const only = (x: { id: string }) => (x.id === u.id ? m : null);
+    await Promise.all([runWorkerPass(store, svc, only), runWorkerPass(store, svc, only)]);
+    expect(lists).toBe(1);
+  });
+
+  it("records when each mailbox last synced and what went wrong, so lag is visible", async () => {
+    const org = await store.createOrg("Health");
+    const good = await store.createUser({ email: "good@health.example", orgId: org.id });
+    const bad = await store.createUser({ email: "bad@health.example", orgId: org.id });
+    for (const x of [good, bad]) await store.setEncryptedTokens(x.id, "blob");
+    const ok = burstMail([]);
+    const broken: MailProvider = { ...ok, listRecentInbox: async () => { throw new Error("quota exceeded"); } };
+    await runWorkerPass(store, new ScanService({ store, mailFor: () => ok }), (x) => (x.id === good.id ? ok : x.id === bad.id ? broken : null));
+    const h = await store.mailboxHealth(org.id);
+    expect(h).toMatchObject({ mailboxes: 2, neverSynced: 1, erroring: 1 });
+    expect(h.maxLagSeconds).toBeGreaterThanOrEqual(0);
+    expect(JSON.stringify(h)).not.toContain("quota"); // counts only: provider error text stays in the server log
+  });
+});
+
+describe("mailbox leases", () => {
+  it("are exclusive until released or expired", async () => {
+    const u = await store.createUser({ email: "lease2@example.com" });
+    expect(await store.leaseMailbox(u.id, 60)).toBe(true);
+    expect(await store.leaseMailbox(u.id, 60)).toBe(false);
+    await store.releaseMailbox(u.id, { ok: true });
+    expect(await store.leaseMailbox(u.id, 60)).toBe(true);
+    await store.releaseMailbox(u.id, { ok: false, error: "x" });
+    expect(await store.leaseMailbox(u.id, 0)).toBe(true);   // a lease of zero seconds is already expired
+    expect(await store.leaseMailbox(u.id, 60)).toBe(true);  // so a crashed worker's lease frees itself
+  });
+});

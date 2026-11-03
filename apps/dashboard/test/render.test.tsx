@@ -15,7 +15,7 @@ const routes: Record<string, unknown> = {
   "/v1/admin/stats/targets": { impersonated: [{ evidence: "paypal", count: 2 }], senderDomains: [{ domain: "evil.test", count: 3 }] },
   "/v1/admin/stats/quality": { falsePositives: 1, missesReported: 0 },
   "/v1/admin/stats/ai": { calls: 0, costUsd: 0, escalated: 0, scanned: 10, escalatedShare: 0 },
-  "/v1/admin/stats/health": { scans24h: 4, p50Ms: 12, p95Ms: 40, lastScanAt: null, linkedMailboxes: 2 },
+  "/v1/admin/stats/health": { scans24h: 4, p50Ms: 12, p95Ms: 40, lastScanAt: null, linkedMailboxes: 2, worker: { mailboxes: 2, neverSynced: 0, erroring: 1, stale: 0, maxLagSeconds: 120 } },
   "/v1/admin/stats/users": { rows: [{ email: "a@corp.test", phishing: 1, suspicious: 0 }] },
   "/v1/admin/scans": { rows: [{ messageId: "m1", userId: "u1", userEmail: "a@corp.test", sender: "x@evil.test", score: 90, verdict: "phishing", pinned: false, createdAt: "2026-01-01T00:00:00Z", flags: ["dmarc_fail"] }], total: 1 },
   "/v1/lists": { allow: [], block: [{ matchType: "domain", value: "evil.test" }] },
@@ -44,6 +44,7 @@ describe("dashboard panels render from API data", () => {
     expect(admin.textContent).toContain("Scanned");
     expect(admin.textContent).toContain("+100% vs previous period");
     expect(admin.textContent).toContain("paypal");
+    expect(admin.textContent).toContain("1 erroring");
     expect(admin.querySelector("svg.chart rect")).not.toBeNull();
     expect(admin.textContent).toContain("Most targeted users");
     const viewer = await render(<Overview api={api} me={me("viewer")} />);

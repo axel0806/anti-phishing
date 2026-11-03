@@ -106,7 +106,8 @@ export function registerAdminRoutes(priv: FastifyInstance, deps: Deps): void {
   });
   withRange("health", "viewer", async (u) => {
     const h = await admin.health(u.orgId!);
-    return { json: h, rows: [h] };
+    const w = await store.mailboxHealth(u.orgId!);
+    return { json: { ...h, worker: w }, rows: [{ ...h, workerMailboxes: w.mailboxes, workerNeverSynced: w.neverSynced, workerErroring: w.erroring, workerStale: w.stale, workerMaxLagSeconds: w.maxLagSeconds }] };
   });
   withRange("users", "admin", async (u, r) => {
     await admin.audit(u.orgId!, u.id, "users.view", null);
