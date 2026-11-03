@@ -4,8 +4,11 @@ import type { AiVerdict, Tactic } from "./schema.ts";
 export const AI_MAX_POINTS = 40;
 /** At or above this model risk, its explanation is shown to the user and carried as evidence. Below it the model is not alarmed, so its words must not reassure anyone. */
 export const EXPLAIN_MIN_RISK = 0.5;
-/** The rule engine's uncertain band: below it the answer is clearly safe, above it clearly phishing. */
-export const UNCERTAIN_BAND = { min: 20, max: 80 } as const;
+/**
+ * The rule engine's uncertain band: below it the answer is clearly safe, above it clearly phishing. It follows the user's thresholds
+ * (10 points below "suspicious" to 20 above "phishing"); for the balanced preset (30/60) that is the familiar 20-80.
+ */
+export const uncertainBand = (s: Pick<Settings, "thresholds">) => ({ min: Math.max(0, s.thresholds.suspicious - 10), max: Math.min(100, s.thresholds.phishing + 20) });
 
 const TACTIC_TO_FLAG: Partial<Record<Tactic, FlagId>> = {
   urgency: "urgency",
@@ -39,5 +42,6 @@ export function aiFlagsFrom(v: AiVerdict, settings: Settings = DEFAULT_SETTINGS)
 
 export function shouldUseAi(ruleScore: number, settings: Settings): boolean {
   if (!settings.ai.enabled) return false;
-  return settings.ai.mode === "always" || (ruleScore >= UNCERTAIN_BAND.min && ruleScore <= UNCERTAIN_BAND.max);
+  const band = uncertainBand(settings);
+  return settings.ai.mode === "always" || (ruleScore >= band.min && ruleScore <= band.max);
 }

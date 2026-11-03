@@ -101,3 +101,64 @@ describe("first_time_sender", () => {
     expect(await withSize(60, { messagesReceived: 3, userReplied: false })).not.toContain("first_time_sender");
   });
 });
+
+describe("attachment risk is judged by content, not just by extension", () => {
+  const att = (o: object) => ({ name: "f", mime: "application/octet-stream", size: 1, sha256: "x", encrypted: false, ...o });
+  it("a plain HTML attachment no longer flags; a risky one does and says why", async () => {
+    expect(await ids(base({ attachments: [att({ name: "receipt.html", mime: "text/html" })] }))).toEqual([]);
+    const flags = await runDetectors(base({ attachments: [att({ name: "login.html", mime: "text/html", risk: "contains a password field" })] }), ctx);
+    expect(flags.map((f) => f.id)).toEqual(["risky_attachment"]);
+    expect(flags[0]!.evidence).toContain("password field");
+  });
+  it("a macro hidden in an ordinary-looking Office file flags", async () => {
+    expect(await ids(base({ attachments: [att({ name: "invoice.docx", risk: "contains macros" })] }))).toEqual(["risky_attachment"]);
+  });
+  it("executables and a disguised .html still flag", async () => {
+    expect(await ids(base({ attachments: [att({ name: "setup.exe" })] }))).toEqual(["risky_attachment"]);
+    expect((await ids(base({ attachments: [att({ name: "invoice.pdf.html" })] }))).sort()).toEqual(["double_extension"]);
+  });
+});
+
+describe("content phrases in other languages", () => {
+  // Content flags only fire together with a sender or link signal, so each case carries a Reply-To mismatch.
+  const spoofed = { spf: "fail", dkim: "pass", dmarc: "pass" } as const;
+  const withText = (text: string, subject = "Hi") => ids(base({ auth: spoofed, replyTo: "attacker@evil.example", subject, text }));
+  it("German, French, Spanish, Italian, Dutch and Portuguese urgency and credential requests are recognised", async () => {
+    expect(await withText("Ihr Konto wurde gesperrt. Bitte sofort handeln.")).toContain("urgency");
+    expect(await withText("Bitte bestätigen Sie Ihr Passwort")).toContain("credential_request");
+    expect(await withText("Votre compte a été suspendu, agissez immédiatement")).toContain("urgency");
+    expect(await withText("Veuillez confirmer votre mot de passe")).toContain("credential_request");
+    expect(await withText("Su cuenta ha sido suspendida, actúe de inmediato")).toContain("urgency");
+    expect(await withText("Confirme su contraseña ahora")).toContain("credential_request");
+    expect(await withText("Il tuo account è stato sospeso, agisci immediatamente")).toContain("urgency");
+    expect(await withText("Uw account is geblokkeerd, handel onmiddellijk")).toContain("urgency");
+    expect(await withText("Confirme a sua palavra-passe")).toContain("credential_request");
+  });
+  it("generic greetings in other languages are recognised", async () => {
+    expect(await withText("Sehr geehrter Kunde, ")).toContain("generic_greeting");
+    expect(await withText("Cher client, ")).toContain("generic_greeting");
+    expect(await withText("Estimado cliente, ")).toContain("generic_greeting");
+  });
+  it("ordinary foreign-language mail does not fire, and words inside longer words do not match", async () => {
+    expect(await ids(base({ text: "Hallo Anna, bis morgen zum Mittagessen! Viele Grüße", subject: "Mittagessen" }))).toEqual([]);
+    expect(await withText("Wir sind dringendst beschäftigt gewesen")).not.toContain("urgency"); // part of a longer word
+    expect(await withText("Unsere Rezeption ist sofortige Hilfe nicht")).not.toContain("urgency");
+  });
+});
+
+describe("more protected brands, and a limit on link lookups", () => {
+  it("impersonating a newly protected brand is caught, the real domain is not", async () => {
+    expect(await ids(base({ from: { name: "Netflix", address: "billing@netfIix-support.com" } }))).toContain("display_name_impersonation");
+    expect(await ids(base({ from: { name: "Netflix", address: "info@netflix.com" } }))).toEqual([]);
+    expect(await ids(base({ from: { name: "Service", address: "x@c0inbase.com" } }))).toContain("lookalike_domain");
+    expect(await ids(base({ from: { name: "Instagram", address: "security@mail.instagram.com" } }))).toEqual([]);
+  });
+  it("looks up at most 10 distinct link targets per email", async () => {
+    const seen: string[] = [];
+    const c = { ...ctx, lookups: { ...ctx.lookups, threatIntel: async (u: string) => { seen.push(u); return false; } } };
+    const links = Array.from({ length: 40 }, (_, i) => ({ text: "t", href: `https://site${i % 25}.example/p`, domain: `site${i % 25}.example` }));
+    await runDetectors(base({ links }), c);
+    expect(seen.length).toBe(10);
+    expect(new Set(seen).size).toBe(10);
+  });
+});

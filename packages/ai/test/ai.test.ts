@@ -111,6 +111,17 @@ describe("shouldUseAi", () => {
     expect(shouldUseAi(95, on)).toBe(false);
     expect(shouldUseAi(0, { ...on, ai: { ...on.ai, mode: "always" } })).toBe(true);
   });
+  it("the uncertain band follows the sensitivity thresholds instead of a fixed 20-80", () => {
+    const strict = { ...on, sensitivity: "strict" as const, thresholds: { suspicious: 20, phishing: 45 } };
+    expect(shouldUseAi(12, strict)).toBe(true);   // strict flags from 20, so scores just under it are close calls
+    expect(shouldUseAi(65, strict)).toBe(true);
+    expect(shouldUseAi(70, strict)).toBe(false);  // far above the phishing line: no need to ask
+    const relaxed = { ...on, sensitivity: "relaxed" as const, thresholds: { suspicious: 40, phishing: 75 } };
+    expect(shouldUseAi(25, relaxed)).toBe(false);
+    expect(shouldUseAi(30, relaxed)).toBe(true);
+    expect(shouldUseAi(95, relaxed)).toBe(true);
+    expect(shouldUseAi(50, { ...on, thresholds: { suspicious: 0, phishing: 100 } })).toBe(true); // custom extremes stay inside 0-100
+  });
 });
 
 const input = buildAiInput(email(), []);

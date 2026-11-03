@@ -46,7 +46,8 @@ export interface ParsedEmail {
   headers: Record<string, string[]>;
   auth: { spf: AuthResult; dkim: AuthResult; dmarc: AuthResult };
   links: { text: string; href: string; domain: string }[];
-  attachments: { name: string; mime: string; size: number; sha256: string; encrypted: boolean }[];
+  /** `risk` is a short reason from inspecting the file's content (credential form, macro, executable inside an archive), when there is one. */
+  attachments: { name: string; mime: string; size: number; sha256: string; encrypted: boolean; risk?: string }[];
 }
 
 export interface SenderHistory { messagesReceived: number; userReplied: boolean }
@@ -77,7 +78,8 @@ export const PRESET_THRESHOLDS = {
 export const DEFAULT_SETTINGS: Settings = {
   enabled: true, sensitivity: "balanced", thresholds: { ...PRESET_THRESHOLDS.balanced },
   flags: {}, categoryMultipliers: {},
-  protectedDomains: ["paypal.com", "microsoft.com", "google.com", "apple.com", "amazon.com"],
+  // Brands whose real mail comes from the listed domain itself (not e.g. facebookmail.com or docusign.net), so impersonation checks stay quiet for them. Orgs can add their own.
+  protectedDomains: ["paypal.com", "microsoft.com", "google.com", "apple.com", "amazon.com", "netflix.com", "linkedin.com", "instagram.com", "dhl.com", "fedex.com", "coinbase.com", "wellsfargo.com", "bankofamerica.com", "americanexpress.com"],
   allowlist: [], blocklist: [], shadowMode: false,
   // Off by default: nothing leaves the server until a user or admin opts in.
   ai: { enabled: false, mode: "uncertain_only", monthlyBudgetUsd: 5 },

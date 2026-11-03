@@ -110,6 +110,7 @@ const replyTo: Detector = (e, ctx) => {
   return a !== b ? compact([fl(ctx, "reply_to_mismatch", `Reply-To ${a} differs from From ${b}`)]) : [];
 };
 
+const MAX_LINK_LOOKUPS = 10;
 const SHORTENERS = new Set(["bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly", "rebrand.ly", "cutt.ly", "shorturl.at"]);
 /** Email-service providers whose click-tracking redirects legitimately differ from the visible link text. */
 export const TRACKING_DOMAINS = new Set([
@@ -157,7 +158,9 @@ const links: Detector = async (e, ctx) => {
     }
   }
   if (e.links.length) {
-    const hits = await Promise.all(e.links.map(async (l) => ((await ctx.lookups.threatIntel(l.href)) ? l : null)));
+    // A message with hundreds of links must not turn into hundreds of outbound lookups: check the first MAX_LINK_LOOKUPS distinct targets.
+    const distinct = [...new Map(e.links.map((l) => [l.href, l])).values()].slice(0, MAX_LINK_LOOKUPS);
+    const hits = await Promise.all(distinct.map(async (l) => ((await ctx.lookups.threatIntel(l.href)) ? l : null)));
     const hit = hits.find((h) => h);
     if (hit) out.push(fl(ctx, "url_threat_intel", `Known malicious URL: ${hit.domain}`));
   }
@@ -169,18 +172,20 @@ const newDomain: Detector = async (e, ctx) => {
   return age !== null && age < 30 ? compact([fl(ctx, "new_domain", `Sender domain registered ${age} days ago`)]) : [];
 };
 
-const RISKY_EXT = new Set(["exe", "scr", "js", "jse", "vbs", "vbe", "bat", "cmd", "com", "msi", "jar", "iso", "img", "lnk", "ps1", "docm", "xlsm", "pptm", "html", "htm", "hta"]);
+// HTML is not here: a plain HTML receipt is normal. HTML/SVG, Office files and archives are judged by their content (`attachment.risk`).
+const RISKY_EXT = new Set(["exe", "scr", "js", "jse", "vbs", "vbe", "bat", "cmd", "com", "msi", "jar", "iso", "img", "lnk", "ps1", "docm", "xlsm", "pptm", "hta"]);
+const WEB_EXT = new Set(["html", "htm", "xhtml", "svg"]);
 const DOC_EXT = new Set(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "jpg", "jpeg", "png", "zip"]);
 const extOf = (n: string) => (n.includes(".") ? n.split(".").pop()!.toLowerCase() : "");
 
 const attachments: Detector = (e, ctx) => {
   const out: (Flag | null)[] = [];
-  const risky = e.attachments.find((a) => RISKY_EXT.has(extOf(a.name)));
-  if (risky) out.push(fl(ctx, "risky_attachment", `Risky attachment: ${risky.name}`));
+  const risky = e.attachments.find((a) => RISKY_EXT.has(extOf(a.name)) || a.risk);
+  if (risky) out.push(fl(ctx, "risky_attachment", `Risky attachment: ${risky.name}${risky.risk ? ` (${risky.risk})` : ""}`));
   const dbl = e.attachments.find((a) => {
     const parts = a.name.toLowerCase().split(".");
     const rtl = a.name.includes("‮");
-    return rtl || (parts.length >= 3 && DOC_EXT.has(parts[parts.length - 2]!) && RISKY_EXT.has(parts[parts.length - 1]!));
+    return rtl || (parts.length >= 3 && DOC_EXT.has(parts[parts.length - 2]!) && (RISKY_EXT.has(parts[parts.length - 1]!) || WEB_EXT.has(parts[parts.length - 1]!)));
   });
   if (dbl) out.push(fl(ctx, "double_extension", `Disguised file name: ${dbl.name}`));
   const enc = e.attachments.find((a) => a.encrypted);
@@ -188,22 +193,43 @@ const attachments: Detector = (e, ctx) => {
   return compact(out);
 };
 
-const URGENCY = ["account suspended", "suspended", "within 24 hours", "immediately", "urgent", "final notice", "verify your account", "will be closed"];
-const CREDENTIALS = ["password", "verify your identity", "gift card", "wire transfer", "bank details", "bank account", "credit card", "social security", "login credentials", "update your payment"];
-const GREETINGS = ["dear customer", "dear user", "dear sir", "dear valued", "dear account holder", "dear client"];
+// English first, then German, French, Spanish, Italian, Dutch and Portuguese. Content flags only fire alongside another positive flag.
+const URGENCY = [
+  "account suspended", "suspended", "within 24 hours", "immediately", "urgent", "final notice", "verify your account", "will be closed",
+  "konto gesperrt", "konto wurde gesperrt", "sofort handeln", "innerhalb von 24 stunden", "letzte mahnung", "dringend", "ihr konto wird geschlossen",
+  "compte a été suspendu", "compte suspendu", "immédiatement", "dans les 24 heures", "dernier avertissement", "agissez rapidement",
+  "cuenta ha sido suspendida", "cuenta suspendida", "de inmediato", "inmediatamente", "dentro de 24 horas", "último aviso", "urgente",
+  "account è stato sospeso", "account sospeso", "immediatamente", "entro 24 ore", "ultimo avviso",
+  "account is geblokkeerd", "onmiddellijk", "binnen 24 uur", "laatste waarschuwing",
+  "conta foi suspensa", "conta suspensa", "imediatamente", "dentro de 24 horas", "último aviso",
+];
+const CREDENTIALS = [
+  "password", "verify your identity", "gift card", "wire transfer", "bank details", "bank account", "credit card", "social security", "login credentials", "update your payment",
+  "passwort", "kennwort", "kreditkarte", "bankverbindung", "kontodaten", "zugangsdaten",
+  "mot de passe", "carte bancaire", "coordonnées bancaires", "identifiants de connexion",
+  "contraseña", "tarjeta de crédito", "datos bancarios", "credenciales",
+  "carta di credito", "dati bancari", "credenziali",
+  "wachtwoord", "creditcard", "bankgegevens", "inloggegevens",
+  "palavra-passe", "cartão de crédito", "dados bancários",
+];
+const GREETINGS = [
+  "dear customer", "dear user", "dear sir", "dear valued", "dear account holder", "dear client",
+  "sehr geehrter kunde", "sehr geehrte kundin", "lieber kunde", "cher client", "chère cliente", "cher utilisateur",
+  "estimado cliente", "estimado usuario", "gentile cliente", "geachte klant", "caro cliente", "prezado cliente",
+];
 /** Whole-word phrase match: "urgent" must not match "insurgent". */
 const hasPhrase = (text: string, list: string[]) =>
   list.find((p) => {
     for (let i = text.indexOf(p); i !== -1; i = text.indexOf(p, i + 1)) {
       const before = text[i - 1];
       const after = text[i + p.length];
-      if (!(before && /[a-z0-9]/.test(before)) && !(after && /[a-z0-9]/.test(after))) return true;
+      if (!(before && /[\p{L}\p{N}]/u.test(before)) && !(after && /[\p{L}\p{N}]/u.test(after))) return true;
     }
     return false;
   });
 
 const content: Detector = (e, ctx) => {
-  const t = (e.subject + " " + e.text).toLowerCase();
+  const t = (e.subject + " " + e.text).normalize("NFC").toLowerCase();
   const out: (Flag | null)[] = [];
   const u = hasPhrase(t, URGENCY);
   if (u) out.push(fl(ctx, "urgency", `Urgency language: "${u}"`));
