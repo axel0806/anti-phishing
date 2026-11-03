@@ -104,7 +104,7 @@ export function loadConfig(env: Env): Config {
   const secureOrLocal = (u: string) => { try { const x = new URL(u); return x.protocol === "https:" || (x.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(x.hostname)); } catch { return false; } };
   // Invite links, the Outlook manifest and OAuth redirects are all built from this, so check it whether or not SSO is on.
   if (env.PUBLIC_URL && !secureOrLocal(env.PUBLIC_URL)) problems.push("PUBLIC_URL must be an https URL (http is allowed for localhost only)");
-  if (env.SETUP_TOKEN !== undefined && env.SETUP_TOKEN.length < 16) problems.push("SETUP_TOKEN must be at least 16 characters (or leave it unset to have one generated at startup)");
+  if (env.SETUP_TOKEN && env.SETUP_TOKEN.length < 16) problems.push("SETUP_TOKEN must be at least 16 characters (or leave it unset to have one generated at startup)");
   let oidc: OidcSettings | null = null;
   const oidcKeys = ["OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"] as const;
   if (oidcKeys.some((k) => env[k])) {

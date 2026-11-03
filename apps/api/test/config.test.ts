@@ -45,6 +45,7 @@ describe("PUBLIC_URL and web onboarding config", () => {
   });
   it("reads an optional SETUP_TOKEN and refuses a weak one", () => {
     expect(loadConfig(good).setupToken).toBeUndefined();
+    expect(loadConfig({ ...good, SETUP_TOKEN: "" }).setupToken).toBeUndefined(); // docker compose passes an empty string when unset
     expect(loadConfig({ ...good, SETUP_TOKEN: "a-long-enough-setup-token" }).setupToken).toBe("a-long-enough-setup-token");
     expect(() => loadConfig({ ...good, SETUP_TOKEN: "short" })).toThrow(/SETUP_TOKEN/);
   });
