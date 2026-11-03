@@ -68,7 +68,7 @@ export function zipIsEncrypted(buf: Buffer): boolean {
   return false;
 }
 
-const MAX_ZIP_ENTRIES = 500;
+const MAX_ZIP_ENTRIES = 4000; // padding an archive with thousands of harmless entries before an .exe must not hide it
 /** File names stored in a ZIP's local headers (names only; nothing is decompressed). Capped, and empty for anything that is not a ZIP. */
 export function zipEntryNames(buf: Buffer): string[] {
   const names: string[] = [];
@@ -85,7 +85,7 @@ export function zipEntryNames(buf: Buffer): string[] {
 
 const RISKY_ARCHIVE_ENTRY = /\.(exe|scr|js|jse|vbs|vbe|bat|cmd|com|msi|jar|iso|img|lnk|ps1|hta|docm|xlsm|pptm|html?)$/i;
 const OFFICE_EXT = /\.(docx?|xlsx?|pptx?|docm|xlsm|pptm|dotx?|xltx?|potx?)$/i;
-const MAX_INSPECT_BYTES = 512 * 1024;
+const MAX_INSPECT_BYTES = 128 * 1024; // credential forms and redirects sit near the top; a smaller window also bounds the work on hostile files
 
 /**
  * Looks inside an attachment for what makes it dangerous, and returns a short reason or undefined.
@@ -99,10 +99,12 @@ export function attachmentRisk(name: string, mime: string, content: Buffer): str
     const lower = name.toLowerCase();
     if (/\.(html?|xhtml|svg)$/.test(lower) || /html|svg/.test(mime)) {
       const t = content.subarray(0, MAX_INSPECT_BYTES).toString("latin1").toLowerCase();
-      if (/<input[^>]*type\s*=\s*["']?password/.test(t)) return "contains a password field";
-      if (/<form[^>]*action\s*=\s*["']?https?:\/\//.test(t)) return "contains a form that posts to an outside site";
-      if (/(eval|document\.write|function)\s*\(\s*(atob|unescape|string\.fromcharcode)|atob\s*\([^)]*\)[^;]*eval|eval\s*\(\s*atob/.test(t) || /document\.write\s*\(\s*unescape/.test(t)) return "contains obfuscated script";
-      if (/http-equiv\s*=\s*["']?refresh[^>]*url\s*=/.test(t) || /(window\.|document\.|top\.|self\.)?location(\.href|\.replace\([^)]*\)|\.assign\([^)]*\))?\s*=?\s*[(']?\s*["']https?:\/\//.test(t)) return "redirects the browser to another site";
+      // Every repetition below is bounded ({0,N}), never * or +: the input is attacker-controlled, and an open-ended run such as [^>]* or \s*
+      // goes quadratic on a file that repeats the opening token and never closes it (tens of seconds of a frozen server per attachment).
+      if (/<input\b[^>]{0,300}type\s{0,10}=\s{0,10}["']?password/.test(t)) return "contains a password field";
+      if (/<form\b[^>]{0,300}action\s{0,10}=\s{0,10}["']?https?:\/\//.test(t)) return "contains a form that posts to an outside site";
+      if (/(eval|document\.write|function)\s{0,10}\(\s{0,10}(atob|unescape|string\.fromcharcode)|atob\s{0,10}\([^)]{0,200}\)[^;]{0,200}eval|eval\s{0,10}\(\s{0,10}atob/.test(t) || /document\.write\s{0,10}\(\s{0,10}unescape/.test(t)) return "contains obfuscated script";
+      if (/http-equiv\s{0,10}=\s{0,10}["']?refresh[^>]{0,200}url\s{0,10}=/.test(t) || /(window\.|document\.|top\.|self\.)?location(\.href|\.replace\([^)]{0,200}\)|\.assign\([^)]{0,200}\))?\s{0,20}=?\s{0,20}[(']?\s{0,20}["']https?:\/\//.test(t)) return "redirects the browser to another site";
       return undefined;
     }
     const isZip = content.length > 4 && content.readUInt32LE(0) === 0x04034b50;

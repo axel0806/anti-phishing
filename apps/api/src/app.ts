@@ -77,7 +77,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     reply.header("retry-after", String(retryAfterSec)).code(429).send({ error: { code: "rate_limited", message: "Too many requests. Try again shortly." } });
   const PUBLIC_PATHS = /^\/(setup|join|connect|admin\/login|admin\/callback)(\/|\?|$)/;
   app.addHook("onRequest", async (req, reply) => {
-    if (!PUBLIC_PATHS.test(req.url)) return;
+    // Match the route Fastify resolved, not the raw URL: "/%73etup" reaches the /setup handler but would not match a pattern on the raw text.
+    if (!PUBLIC_PATHS.test(req.routeOptions?.url ?? "")) return;
     const r = publicLimit.take(req.ip);
     if (!r.ok) return tooMany(reply, r.retryAfterSec);
   });

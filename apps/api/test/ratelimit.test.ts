@@ -70,6 +70,14 @@ describe("HTTP rate limits", () => {
     for (let i = 0; i < 9; i++) rest.push((await app.inject({ method: "GET", url: "/v1/me", headers: h })).statusCode);
     expect(rest.includes(429)).toBe(true);
   });
+  it("cannot be dodged by percent-encoding the path", async () => {
+    const codes: number[] = [];
+    for (const u of ["/%6Aoin/x", "/jo%69n/x", "/join/x", "/%6Aoin/y", "/join/z", "/%6Aoin/w", "/join/v", "/%6Aoin/u"]) codes.push((await app.inject({ method: "GET", url: u, remoteAddress: "198.51.100.61" })).statusCode);
+    expect(codes.slice(5)).toEqual([429, 429, 429]);
+    const setup: number[] = [];
+    for (let i = 0; i < 8; i++) setup.push((await app.inject({ method: "POST", url: "/%73etup/start", payload: "token=guess", headers: { "content-type": "application/x-www-form-urlencoded" }, remoteAddress: "198.51.100.62" })).statusCode);
+    expect(setup.includes(429)).toBe(true);
+  });
   it("leave the health check alone, so monitors and load balancers are never blocked", async () => {
     for (let i = 0; i < 30; i++) expect((await app.inject({ method: "GET", url: "/v1/health", remoteAddress: "198.51.100.50" })).statusCode).toBe(200);
   });

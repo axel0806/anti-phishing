@@ -18,8 +18,10 @@ const risk = (name: string, content: string | Buffer, mime = "application/octet-
 describe("zipEntryNames", () => {
   it("lists entry names and caps the count", () => {
     expect(zipEntryNames(zip({ "a.txt": "x", "dir/b.exe": "y" }))).toEqual(["a.txt", "dir/b.exe"]);
-    const many = zip(Object.fromEntries(Array.from({ length: 800 }, (_, i) => [`f${i}.txt`, "x"])));
-    expect(zipEntryNames(many).length).toBeLessThanOrEqual(500);
+    const many = zip(Object.fromEntries(Array.from({ length: 5000 }, (_, i) => [`f${i}.txt`, "x"])));
+    expect(zipEntryNames(many).length).toBeLessThanOrEqual(4000);
+    const padded = zip({ ...Object.fromEntries(Array.from({ length: 1500 }, (_, i) => [`pad${i}.txt`, "x"])), "payload.exe": "x" });
+    expect(attachmentRisk("d.zip", "application/zip", padded)).toMatch(/payload.exe/);
   });
   it("returns nothing for non-zip data", () => expect(zipEntryNames(Buffer.from("hello"))).toEqual([]));
 });
@@ -55,5 +57,27 @@ describe("Office files and archives", () => {
   it("leaves other files alone and never throws on garbage", () => {
     expect(risk("photo.jpg", Buffer.from([0xff, 0xd8, 0xff]))).toBeUndefined();
     expect(risk("broken.zip", Buffer.from("PK\u0003\u0004garbage"), "application/zip")).toBeUndefined();
+  });
+});
+
+describe("hostile attachments cannot stall the scanner (ReDoS)", () => {
+  // Each of these is a repeated opening token that never closes: unbounded `[^>]*` or `\s*` runs go quadratic on them.
+  const size = 600 * 1024;
+  const rep = (s: string) => s.repeat(Math.ceil(size / s.length)).slice(0, size);
+  const cases: Record<string, string> = {
+    "<input ": rep("<input "), "<form ": rep("<form "), "atob(x) ": rep("atob(x) "), "location(": rep("location.replace("),
+    "refresh": rep("http-equiv=refresh "), "spaces after location": "location" + " ".repeat(size), "spaces in type": "<input type" + " ".repeat(size),
+    "nested parens": "atob(" + "(".repeat(size),
+  };
+  for (const [name, body] of Object.entries(cases)) {
+    it(`finishes quickly on ${name}`, () => {
+      const t = Date.now();
+      attachmentRisk("evil.html", "text/html", Buffer.from(body));
+      attachmentRisk("evil.svg", "image/svg+xml", Buffer.from(body));
+      expect(Date.now() - t).toBeLessThan(1500);
+    });
+  }
+  it("still finds the real thing near the start of a large file", () => {
+    expect(attachmentRisk("p.html", "text/html", Buffer.from("<form><input type=password></form>" + "x".repeat(300_000)))).toMatch(/password/);
   });
 });
