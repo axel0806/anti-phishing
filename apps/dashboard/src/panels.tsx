@@ -250,7 +250,7 @@ export function PolicyTab({ api, me }: { api: Api; me: Me }) {
   );
 }
 
-const FIREFOX_ID = "anti-phishing@example.invalid";
+const FIREFOX_ID = "anti-phishing-dev@local";
 
 export function DeployTab() {
   const [url, setUrl] = useState(window.location.origin);
