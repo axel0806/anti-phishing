@@ -1,6 +1,6 @@
 # SWOT analysis
 
-First written 2026-11-03; **updated the same day after web onboarding and a hardening pass** (branch `phase-4-orgs`, 474 tests, typecheck clean, not merged to `main`). Items tagged **[FIXED]**, **[PARTLY]** or **[OPEN]** below carry their current status; the update summary follows. The analysis centres on the product as it exists in the repository. Market and business factors are kept to a short section at the end of each quadrant. Sources: `docs/HANDOFF.md`, `docs/RUNNING.md`, `docs/GO-TO-MARKET.md`, `plan.md`, `README.md` and the code. Points are ordered by importance within each section.
+First written 2026-11-03; **updated the same day after web onboarding and a hardening pass** (branch `phase-4-orgs`, 474 tests, typecheck clean, not merged to `main`). Items tagged **[FIXED]**, **[PARTLY]** or **[OPEN]** below carry their current status; the update summary follows. The analysis centres on the product as it exists in the repository. Market and business factors are kept to a short section at the end of each quadrant. Sources: `docs/HANDOFF.md`, `docs/RUNNING.md`, the (private) business plan, `plan.md`, `README.md` and the code. Points are ordered by importance within each section.
 
 ---
 
@@ -54,7 +54,7 @@ Role-based dashboard (viewer, analyst, admin) with stats, email log, CSV export,
 **9. It can now be set up and run without a command line.**
 First-run `/setup` gated by a one-time token, signed single-use invite links, browser mailbox connection (OAuth code + PKCE in a signed cookie), role-based People and Account tabs, erasure and sign-out-everywhere, extension tokens capped at user rights, rate limits, a TLS compose profile, key rotation and an operations guide (`docs/ONBOARDING.md`, `docs/OPERATIONS.md`). Untested against real Google and Microsoft, but covered by fakes and a real-server smoke test.
 
-**10. Market (short).** The self-host, explainable, no-vendor-in-the-data-path positioning is coherent with what is built, and `docs/GO-TO-MARKET.md` is candid about where it does not fit.
+**10. Market (short).** The self-host, explainable, no-vendor-in-the-data-path positioning is coherent with what is built, and the (private) business plan is candid about where it does not fit.
 
 ---
 
@@ -100,7 +100,7 @@ The dashboard has only a JSON editor and lock checkboxes for policy (no form), n
 `HANDOFF.md` admits that the forged-delimiter and "obedient model" tests cannot really fail, and that rescan drops `first_time_sender`. The AI uncertain band is fixed at 20 to 80 and ignores strict thresholds, and the org budget check is not atomic (it can overshoot by about one call per concurrent scan).
 *Mitigation:* rewrite the weak tests against a scripted adversarial model, make the band derive from the thresholds, and make the budget reservation atomic.
 
-**11. Market (short).** One developer, no licence, no billing, no published benchmark: nothing here can be charged for yet (`docs/GO-TO-MARKET.md`, section 0).
+**11. Market (short).** One developer, no licence, no billing, no published benchmark: nothing here can be charged for yet (the (private) business plan, section 0).
 
 ---
 
@@ -110,7 +110,7 @@ The dashboard has only a JSON editor and lock checkboxes for policy (no form), n
 Almost nobody publishes recall and false positives on mail that Gmail or Microsoft already delivered. The corpus runners (`corpus/run.ts`, `corpus/ab.ts`) and the injection corpus already exist. An honest benchmark, failures included, would build trust faster than any feature.
 
 **2. Self-host with a local LLM is a real wedge for privacy-sensitive organisations.**
-The code already supports it: `AI_PROVIDER=openai` with a local base URL, PGlite for trials, Postgres in Docker, OIDC, and no mail leaving the network. Self-hosters using their own Internal OAuth client also avoid Google's CASA assessment (`docs/GO-TO-MARKET.md`, 4.1). Law firms, clinics and NGOs fit this best.
+The code already supports it: `AI_PROVIDER=openai` with a local base URL, PGlite for trials, Postgres in Docker, OIDC, and no mail leaving the network. Self-hosters using their own Internal OAuth client also avoid Google's CASA assessment (the (private) business plan, 4.1). Law firms, clinics and NGOs fit this best.
 
 **3. User feedback is a ready-made improvement loop.**
 Feedback is already stored, pins verdicts and feeds `GET /v1/settings/suggestions`. With pilot data this can drive per-org weight tuning, a trained lightweight classifier as a rule feature, and a labelled dataset for the corpus.
@@ -124,14 +124,14 @@ Safe Browsing and RDAP are built behind opt-in flags and only need real-service 
 **5b. Operational reach.** *(Partly done: leased, concurrent workers; browser onboarding. Still open: Workspace delegation, Microsoft application permission, push.)*
 An org-wide connection (Workspace delegation, Microsoft application permission) and push ingest (Pub/Sub, Graph subscriptions) would turn a per-employee, 60-second poller into something an IT admin can deploy in an afternoon. The code already has `ROLE=api|worker|all`, which gives a split into services for free.
 
-**6. Market (short).** The SMB segment priced out of Abnormal and Proofpoint, MSPs wanting an explainable add-on, and a licence split (AGPL core plus commercial add-ons) all remain open. Detail and pricing are in `docs/GO-TO-MARKET.md`.
+**6. Market (short).** The SMB segment priced out of Abnormal and Proofpoint, MSPs wanting an explainable add-on, and a licence split (AGPL core plus commercial add-ons) all remain open. Detail and pricing are in the (private) business plan.
 
 ---
 
 ## Threats
 
 **1. The detection gap may be small: Gmail and Microsoft already filter pre-delivery.**
-This product sees only mail that the provider let through, post-delivery. If lift on the residual set is low, the product is a banner with nothing to say. This risk is rated High in `docs/GO-TO-MARKET.md`, section 7.4.
+This product sees only mail that the provider let through, post-delivery. If lift on the residual set is low, the product is a banner with nothing to say. This risk is rated High in the (private) business plan, section 7.4.
 *Mitigation:* measure the residual set first (Weakness 2). If the lift is small, sell explainability, banners and self-hosting rather than catch rate, and never claim to beat the provider.
 
 **2. Attackers can adapt to a rule set that is published and static.**
@@ -155,7 +155,7 @@ One person must own detection, two mail providers, three front-ends, ops and com
 *Mitigation:* self-host-first to push operations onto customers, a documented runbook, a licence and signed releases, and a part-time second engineer before hosted GA.
 
 **7. Competition and bundling (market, short).**
-Sublime Security already holds the open-source detection position, Defender P1 is being bundled into M365 Business Standard, and Google's built-in filter is free. Positioning on Workspace plus self-host, SMB simplicity and privacy is the defensible response (`docs/GO-TO-MARKET.md`, 1 and 7.4).
+Sublime Security already holds the open-source detection position, Defender P1 is being bundled into M365 Business Standard, and Google's built-in filter is free. Positioning on Workspace plus self-host, SMB simplicity and privacy is the defensible response (the (private) business plan, 1 and 7.4).
 
 **8. Scale and abuse limits of the current design.** *(Partly addressed: rate limits, link-lookup cap, leased concurrent workers. Still open: atomic AI budget, per-tenant isolation.)*
 No rate limiting, a sequential worker, an AI budget check that can overshoot, and unbounded link lookups per email (Safe Browsing also receives the URL path) make a hostile or very large tenant a risk to the rest.
