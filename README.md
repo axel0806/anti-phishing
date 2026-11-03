@@ -59,6 +59,8 @@ Measure it: `npm run corpus:ab` runs `corpus/uncertain` through rules-only and r
 
 ## Phase 4: organizations, dashboard and Outlook
 
+**No command line needed:** set `PUBLIC_URL` plus a Google or Microsoft app, start the server, and open `<PUBLIC_URL>/setup` (the setup token is printed in the log). Then invite people from the dashboard's People tab. Step by step: [docs/ONBOARDING.md](docs/ONBOARDING.md). Backups, upgrades, key rotation and limits: [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
 Build the front-ends once (the Docker image does this for you): `npm run build:ui`. The API then serves the admin dashboard at `/admin/` and the Outlook task pane at `/addin/`.
 
 - **Dashboard** (`/admin/`): roles `viewer` (aggregate panels), `analyst` (+ email log), `admin` (+ per-user data, org lists and policy, managed-policy generator, audit log, release/re-quarantine). Sign in with SSO (`OIDC_*` + `PUBLIC_URL`; the user must already exist) or paste a session token from `npm run api:cli -- token`. Give someone a role with `npm run api:cli -- set-role`. Viewing the email log, per-user data and exports is written to the audit log. The log never shows subjects or bodies, because they are not stored.

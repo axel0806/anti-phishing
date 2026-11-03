@@ -15,6 +15,10 @@ Create `.env` (see `.env.example`). Required: `SERVER_SECRET` (32+ characters) a
 
 ## 2. Start the server and create an admin
 
+**In the browser (recommended):** set `PUBLIC_URL` (e.g. `http://localhost:8080`) and `GOOGLE_CLIENT_ID/SECRET` or `MICROSOFT_CLIENT_ID/SECRET` (see docs/ONBOARDING.md for the app registration), run `npm run api`, open the `/setup` address printed in the log, and enter the setup token. Skip to step 3.
+
+**Or from the command line:**
+
 ```
 npm run api                                        # API + worker on :8080
 npm run api:cli -- create-user you@example.com --admin
@@ -42,6 +46,8 @@ Give a colleague dashboard access with `npm run api:cli -- set-role them@example
 | --- | --- |
 | Server exits at start with a list of problems | `.env` validation: read the messages (secret lengths, https-only URLs, tenant format) |
 | `/admin/` is a 404 | `npm run build:ui` was not run (the server logs "Dashboard not built") |
+| `/setup` says already set up, or mailbox connection is not set up | A user already exists (use an invite), or `PUBLIC_URL` / the mail app credentials are missing |
+| 429 "Too many requests" | Rate limit (60/min per address on public pages, 600/min per user); wait for `Retry-After`. Behind a proxy set `TRUST_PROXY=true` |
 | Dashboard keeps returning to sign-in | Token expired (SSO tokens last 8 hours) or created for another server id (`SERVER_ID`/secret changed) |
 | 403 on a tab or panel | Role too low; check `GET /v1/me` |
 | SSO returns "not set up for the dashboard" | The email must already exist as a user with a role; SSO never creates accounts |

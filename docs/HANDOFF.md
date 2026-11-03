@@ -11,7 +11,7 @@ An AI-assisted anti-phishing system. Every incoming email is scored against weig
 | Branch | State |
 | --- | --- |
 | `main` | Phases 1, 2 and 3 merged and pushed. 233 tests at merge. CI green. |
-| `phase-4-orgs` | **Active.** Pushed, not merged. 384 tests pass, `tsc --noEmit` clean. |
+| `phase-4-orgs` | **Active.** Pushed, not merged. 453 tests pass, `tsc --noEmit` clean. |
 
 Do not merge `phase-4-orgs` into `main` without the user's explicit say-so. They approved the earlier merges individually. The user said "just get everything done and then we'll get it going and diagnose any issues": they intend to run it themselves and report problems.
 
@@ -109,6 +109,12 @@ Per phase: build test-first on a branch, commit, push, then dispatch an independ
 - Background servers started from the shell can outlive the command and hold ports (a stale API on 18080 once caused phantom 401s). Check `Get-NetTCPConnection -LocalPort` before blaming the code.
 - PGlite needs its data directory's parent to exist (`connect()` creates it) and runs one statement per call (migrations are split on `;`).
 - Zod is v4 (`z.partialRecord`, `z.strictObject`). Fastify is v5. `jose` v6.
+
+## Post-SWOT work (docs/SWOT.md): web onboarding and hardening
+
+Done, all with tests: **web onboarding** (`/setup` first-run page gated by a one-time `SETUP_TOKEN` printed at startup; admin-made invite links at `/join/<signed token>`; browser OAuth "connect your mailbox" at `/connect/callback`; dashboard People and Account tabs; erasure endpoints `DELETE /v1/admin/users/:id` and `DELETE /v1/me`; `POST /v1/me/token`). See docs/ONBOARDING.md. **Ingest**: mailbox leases (`mailbox_state` table, migration 0006) so several workers share load, 4-way concurrency, a 200-message window with one batched dedupe query, sync lag and error counts in the dashboard health panel. **Detection**: attachments judged by content (HTML/SVG credential forms and obfuscated script, hidden Office macros, executables inside ZIPs) instead of flagging every `.html`; German/French/Spanish/Italian/Dutch/Portuguese phrase lists; 9 more default brands (only ones whose real mail comes from the listed domain); at most 10 link lookups per email; display-name check splits on punctuation; the AI band follows the thresholds. **Hardening**: in-memory rate limits (+ `TRUST_PROXY`), Caddy TLS compose profile, `TOKEN_KEY_PREVIOUS` + `rotate-keys`, always-validated `PUBLIC_URL`, dashboard policy form, CSV truncation notice, docs/OPERATIONS.md, real forged-delimiter and AI-never-lowers tests.
+
+Still open from the SWOT, deliberately: everything that needs real services or real data (soak run, real corpus and AI A/B, Gmail history/Graph delta and push, Outlook/Docker/real-browser checks); the licence (owner decision, no LICENSE file); per-org keys/KMS; SAML; atomic AI budget reservation (overshoot is now bounded by worker concurrency, about four cheap calls); admin release/re-quarantine still counts as the target user's own feedback (judged acceptable: it is a real false-positive signal); rescan drops `first_time_sender`; allow/block lists still match the spoofable From header (allowlist needs DMARC pass); hash reputation feeds; the extension still uses the dev add-on id.
 
 ## Phase 4 independent review (done, Sonnet 5.5 reviewer)
 
