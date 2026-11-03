@@ -76,7 +76,7 @@ describe("people and account tabs", () => {
     expect(host.textContent).toContain("new@corp.test");
     expect(host.textContent).toContain("not connected");
     expect(host.textContent).toContain("gmail connected");
-    expect(host.querySelectorAll("button.ghost").length).toBe(1); // Erase for the other person only
+    expect(host.querySelectorAll("button.ghost").length).toBe(2); // Sign out and Erase, for the other person only (never for yourself)
     expect(host.querySelector("select[aria-label=\"Role for me@corp.test\"]")).toBeNull();
     expect(host.querySelector("select[aria-label=\"Role for new@corp.test\"]")).not.toBeNull();
     expect(host.textContent).toContain("Create invite link");

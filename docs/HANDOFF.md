@@ -11,7 +11,7 @@ An AI-assisted anti-phishing system. Every incoming email is scored against weig
 | Branch | State |
 | --- | --- |
 | `main` | Phases 1, 2 and 3 merged and pushed. 233 tests at merge. CI green. |
-| `phase-4-orgs` | **Active.** Pushed, not merged. 453 tests pass, `tsc --noEmit` clean. |
+| `phase-4-orgs` | **Active.** Pushed, not merged. 474 tests pass, `tsc --noEmit` clean. |
 
 Do not merge `phase-4-orgs` into `main` without the user's explicit say-so. They approved the earlier merges individually. The user said "just get everything done and then we'll get it going and diagnose any issues": they intend to run it themselves and report problems.
 

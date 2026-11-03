@@ -97,14 +97,15 @@ export function registerOnboarding(app: FastifyInstance, deps: OnboardingDeps): 
     try { r = await connect.finish(req.query, cookie); } catch (e) {
       return failed(reply, e instanceof ConnectError ? "The sign-in could not be completed. Please start again from your link." : undefined);
     }
-    const done = (r2: { id: string }, days: number) => signToken(secret, { uid: r2.id, sid: serverId, exp: Math.floor(Date.now() / 1000) + days * 86400 });
+    const done = (r2: { id: string }, days: number, sc?: "ext") => signToken(secret, { uid: r2.id, sid: serverId, exp: Math.floor(Date.now() / 1000) + days * 86400, ...(sc ? { sc } : {}) });
 
     if (r.purpose === "setup") {
-      if (await store.countUsers() > 0) return failed(reply, "This server was already set up.");
-      const org = await store.createOrg(r.email.split("@")[1] ?? "organization");
-      const user = await store.createUser({ email: r.email, orgId: org.id, role: "admin", provider: r.provider === "outlook" ? "outlook" : "gmail" });
+      // One transaction decides who is first, so two people finishing at once cannot both become administrator.
+      const first = await store.createFirstAdmin({ email: r.email, provider: r.provider === "outlook" ? "outlook" : "gmail", orgName: r.email.split("@")[1] ?? "organization" });
+      if (!first) return failed(reply, "This server was already set up.");
+      const user = first.user;
       await store.setEncryptedTokens(user.id, tokensBlob(tokenKey, r.refreshToken));
-      await admin?.audit(org.id, user.id, "setup.complete", r.email);
+      await admin?.audit(first.orgId, user.id, "setup.complete", r.email);
       // In the fragment, like SSO: never sent to a server, logged, or leaked in Referer. The dashboard moves it into sessionStorage.
       return reply.header("set-cookie", clearCookie).header("cache-control", "no-store").redirect(`/admin/#token=${done(user, 1)}`);
     }
@@ -116,13 +117,17 @@ export function registerOnboarding(app: FastifyInstance, deps: OnboardingDeps): 
       const provider = r.provider === "outlook" ? "outlook" : "gmail";
       let user = await store.getUserByEmail(r.email);
       if (user && user.orgId && user.orgId !== inv.orgId) return failed(reply, "This mailbox already belongs to another organization.");
+      // Reconnecting must not swap how an existing member's mailbox is reached, or overwrite their tokens through another provider.
+      if (user && user.encryptedTokens && user.provider !== provider) return failed(reply, `This mailbox is already connected through ${user.provider === "outlook" ? "Outlook" : "Gmail"}. Use that option.`);
+      // Single use: spent only now that every check has passed, so a wrong-mailbox attempt does not burn the link, and an erased person cannot return with it.
+      if (!(await store.consumeInvite(inv.id))) return failed(reply, "This invite was already used. Ask your administrator for a new one.");
       if (!user) user = await store.createUser({ email: r.email, orgId: inv.orgId, role: inv.role, provider });
-      else await store.setUserMembership(user.id, { orgId: inv.orgId, role: user.orgId === inv.orgId ? user.role : inv.role, provider });
+      else await store.setUserMembership(user.id, { orgId: inv.orgId, role: user.orgId === inv.orgId ? user.role : inv.role, provider: user.encryptedTokens ? user.provider : provider });
       await store.setEncryptedTokens(user.id, tokensBlob(tokenKey, r.refreshToken));
       await admin?.audit(inv.orgId, user.id, "user.connected", r.email);
       return html(reply.header("set-cookie", clearCookie), 200, "Mailbox connected",
         `<p><b>${esc(r.email)}</b> is now protected. Paste this token into the browser extension's settings (or the Outlook add-in) together with this server's address. It is valid for 30 days and works like a password.</p>
-         <textarea readonly rows="6">${esc(done(user, 30))}</textarea>
+         <textarea readonly rows="6">${esc(done(user, 30, "ext"))}</textarea>
          <p class="muted">You can close this tab afterwards. To disconnect, remove the app from your Google or Microsoft account's connected apps.</p>`);
     }
     return failed(reply);

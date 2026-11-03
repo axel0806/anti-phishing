@@ -3,10 +3,12 @@ import { signBlob } from "../src/auth.ts";
 import { Connect, ConnectError, makeInvite, readInvite } from "../src/connect.ts";
 
 const SECRET = "x".repeat(40);
+const TENANT = "11111111-2222-3333-4444-555555555555";
+const GMAIL_SCOPE = "openid email https://www.googleapis.com/auth/gmail.modify";
 const idToken = (claims: object) => `h.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.s`;
 const mk = (tokenBody: object, calls: { url: string; body: string }[] = []) => new Connect({
   secret: SECRET, publicUrl: "https://phish.example",
-  google: { clientId: "gid", clientSecret: "gsec" }, microsoft: { clientId: "mid", clientSecret: "msec", tenant: "contoso.com" },
+  google: { clientId: "gid", clientSecret: "gsec" }, microsoft: { clientId: "mid", clientSecret: "msec", tenant: TENANT },
   fetch: (async (url: string, init: { body: string }) => { calls.push({ url, body: init.body }); return { ok: true, status: 200, json: async () => tokenBody } as Response; }) as unknown as typeof fetch,
 });
 const state = (url: string) => new URL(url).searchParams.get("state")!;
@@ -20,13 +22,13 @@ describe("web mailbox connection", () => {
     expect(u.searchParams.get("scope")).toBe("openid email https://www.googleapis.com/auth/gmail.modify");
     expect(u.searchParams.get("access_type")).toBe("offline");
     const o = new URL(mk({}).start("outlook", "x").url);
-    expect(o.pathname).toBe("/contoso.com/oauth2/v2.0/authorize");
+    expect(o.pathname).toBe(`/${TENANT}/oauth2/v2.0/authorize`);
     expect(o.searchParams.get("scope")).toBe("openid email offline_access Mail.ReadWrite");
   });
 
   it("exchanges the code with the stored verifier and returns the verified mailbox and the purpose", async () => {
     const calls: { url: string; body: string }[] = [];
-    const c = mk({ refresh_token: "rt", id_token: idToken({ email: "Boss@Corp.Example", email_verified: true }) }, calls);
+    const c = mk({ refresh_token: "rt", scope: GMAIL_SCOPE, id_token: idToken({ email: "Boss@Corp.Example", email_verified: true }) }, calls);
     const s = c.start("gmail", "invite:abc");
     const r = await c.finish({ code: "code1", state: state(s.url) }, s.cookie);
     expect(r).toEqual({ provider: "gmail", email: "boss@corp.example", refreshToken: "rt", purpose: "invite:abc" });
@@ -37,13 +39,13 @@ describe("web mailbox connection", () => {
   });
 
   it("uses preferred_username for Microsoft work accounts without an email claim", async () => {
-    const c = mk({ refresh_token: "rt", id_token: idToken({ preferred_username: "amy@contoso.com" }) });
+    const c = mk({ refresh_token: "rt", id_token: idToken({ preferred_username: "amy@contoso.com", tid: TENANT }) });
     const s = c.start("outlook", "p");
     expect((await c.finish({ code: "c", state: state(s.url) }, s.cookie)).email).toBe("amy@contoso.com");
   });
 
   it("refuses a wrong state, a missing or forged cookie, an SSO cookie, an unverified Google email, and a missing refresh token", async () => {
-    const good = { refresh_token: "rt", id_token: idToken({ email: "a@b.example", email_verified: true }) };
+    const good = { refresh_token: "rt", scope: GMAIL_SCOPE, id_token: idToken({ email: "a@b.example", email_verified: true }) };
     const c = mk(good);
     const s = c.start("gmail", "p");
     await expect(c.finish({ code: "c", state: "wrong" }, s.cookie)).rejects.toBeInstanceOf(ConnectError);
@@ -51,12 +53,30 @@ describe("web mailbox connection", () => {
     await expect(c.finish({ code: "c", state: state(s.url) }, s.cookie + "x")).rejects.toBeInstanceOf(ConnectError);
     const sso = signBlob(SECRET, JSON.stringify({ s: state(s.url), n: "n", v: "v", e: Math.floor(Date.now() / 1000) + 99 }));
     await expect(c.finish({ code: "c", state: state(s.url) }, sso)).rejects.toThrow(/Not a connect cookie/);
-    const unverified = mk({ refresh_token: "rt", id_token: idToken({ email: "a@b.example", email_verified: false }) });
+    const unverified = mk({ refresh_token: "rt", scope: GMAIL_SCOPE, id_token: idToken({ email: "a@b.example", email_verified: false }) });
     const s2 = unverified.start("gmail", "p");
     await expect(unverified.finish({ code: "c", state: state(s2.url) }, s2.cookie)).rejects.toThrow(/not verified/);
     const noRefresh = mk({ id_token: good.id_token });
     const s3 = noRefresh.start("gmail", "p");
     await expect(noRefresh.finish({ code: "c", state: state(s3.url) }, s3.cookie)).rejects.toThrow(/refresh token/);
+  });
+
+  it("refuses a Google grant that left out the mail permission, and a Microsoft identity from any other tenant", async () => {
+    const idt = idToken({ email: "a@b.example", email_verified: true });
+    const partial = mk({ refresh_token: "rt", id_token: idt, scope: "openid email" });
+    const s = partial.start("gmail", "p");
+    await expect(partial.finish({ code: "c", state: state(s.url) }, s.cookie)).rejects.toThrow(/permission/);
+    for (const tid of ["99999999-2222-3333-4444-555555555555", undefined]) {
+      const ms = mk({ refresh_token: "rt", id_token: idToken({ email: "victim@corp.example", tid }) });
+      const x = ms.start("outlook", "p");
+      await expect(ms.finish({ code: "c", state: state(x.url) }, x.cookie)).rejects.toThrow(/tenant/);
+    }
+  });
+
+  it("offers Outlook for web sign-in only when it is locked to one tenant (an id), never common/organizations/consumers or a domain", () => {
+    const mkp = (tenant: string) => new Connect({ secret: SECRET, publicUrl: "https://p.example", microsoft: { clientId: "m", tenant } }).providers;
+    expect(mkp(TENANT)).toEqual(["outlook"]);
+    for (const t of ["common", "organizations", "consumers", "contoso.com"]) expect(mkp(t)).toEqual([]);
   });
 
   it("only offers providers that are configured", () => {

@@ -47,7 +47,7 @@ export interface AppDeps {
 }
 
 declare module "fastify" {
-  interface FastifyRequest { user?: User }
+  interface FastifyRequest { user?: User; tokenScope?: "ext" }
 }
 
 
@@ -165,7 +165,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const claims = m ? verifyToken(secret, m[1]!, serverId) : null;
       const user = claims ? await store.getUser(claims.uid) : null;
       if (!user) return fail(reply, "unauthorized", "Missing or invalid session token");
-      req.user = user;
+      // "Sign out everywhere" and role changes refuse every token issued before them.
+      if (user.tokensValidAfter && (claims!.iat ?? 0) < Math.ceil(user.tokensValidAfter.getTime() / 1000)) return fail(reply, "unauthorized", "This session was signed out");
+      // An extension or add-in token never carries more than a plain user's rights, whatever role the account has.
+      if (claims!.sc === "ext") { req.tokenScope = "ext"; req.user = { ...user, role: "user" }; } else req.user = user;
       const r = userLimit.take(user.id);
       if (!r.ok) return tooMany(reply, r.retryAfterSec);
       if (req.url.startsWith("/v1/rescan")) { const x = rescanLimit.take(user.id); if (!x.ok) return tooMany(reply, x.retryAfterSec); }
@@ -180,13 +183,20 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
     // An extension or add-in token, minted from an already signed-in session (e.g. the dashboard) for up to 90 days.
     priv.post("/v1/me/token", async (req, reply) => {
+      if (req.tokenScope === "ext") return fail(reply, "forbidden", "An extension token cannot create other tokens. Sign in to the dashboard.");
       const body = z.object({ days: z.number().int().min(1).max(90).default(30) }).safeParse(req.body ?? {});
       if (!body.success) return fail(reply, "validation", "days must be a whole number from 1 to 90");
       const exp = Math.floor(Date.now() / 1000) + body.data.days * 86400;
-      return { token: signToken(secret, { uid: req.user!.id, sid: serverId, exp }), expiresAt: new Date(exp * 1000).toISOString() };
+      return { token: signToken(secret, { uid: req.user!.id, sid: serverId, exp, sc: "ext" }), expiresAt: new Date(exp * 1000).toISOString() };
     });
     // Self-service erasure: removes the account and everything stored about it. The last admin of an org must hand over first.
+    priv.post("/v1/me/revoke-tokens", async (req, reply) => {
+      if (req.tokenScope === "ext") return fail(reply, "forbidden", "Sign in to the dashboard to sign out everywhere.");
+      await store.revokeTokens(req.user!.id);
+      return { ok: true };
+    });
     priv.delete("/v1/me", async (req, reply) => {
+      if (req.tokenScope === "ext") return fail(reply, "forbidden", "An extension token cannot erase the account. Sign in to the dashboard.");
       const u = req.user!;
       if (u.orgId && u.role === "admin") {
         const admins = (await store.listOrgUsers(u.orgId)).filter((x) => x.role === "admin");

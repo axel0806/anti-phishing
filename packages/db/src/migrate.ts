@@ -133,6 +133,15 @@ create table mailbox_state (
   last_error text
 );`,
   },
+  {
+    id: "0007_sessions_invites",
+    sql: `
+alter table users add column tokens_valid_after timestamptz;
+create table used_invites (
+  jti text primary key,
+  used_at timestamptz not null default now()
+);`,
+  },
 ];
 
 /** Arbitrary constant: every process that migrates takes the same lock, so API and worker can start together. */

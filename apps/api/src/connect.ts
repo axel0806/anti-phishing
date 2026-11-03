@@ -47,7 +47,10 @@ export class Connect implements ConnectFlow {
 
   constructor(private cfg: ConnectConfig) {
     this.f = cfg.fetch ?? fetch;
-    this.providers = [...(cfg.google ? (["gmail"] as const) : []), ...(cfg.microsoft ? (["outlook"] as const) : [])];
+    // Microsoft identities are only trustworthy within one known tenant: in "common"/"organizations" anyone can run their own tenant and put any address
+    // in the email claim. So web sign-in for Outlook needs MICROSOFT_TENANT set to a tenant id; other setups use the command line.
+    const singleTenant = !!cfg.microsoft && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cfg.microsoft.tenant);
+    this.providers = [...(cfg.google ? (["gmail"] as const) : []), ...(singleTenant ? (["outlook"] as const) : [])];
     this.secureCookie = cfg.publicUrl.startsWith("https:");
   }
 
@@ -97,13 +100,15 @@ export class Connect implements ConnectFlow {
       }).toString(),
     });
     if (!res.ok) throw new ConnectError(`Token exchange failed (${res.status})`);
-    const t = (await res.json()) as { refresh_token?: string; id_token?: string };
+    const t = (await res.json()) as { refresh_token?: string; id_token?: string; scope?: string };
     if (!t.refresh_token) throw new ConnectError("The provider returned no refresh token; remove this app from the account's connected apps and try again");
     const claims = decodeClaims(t.id_token);
     // The ID token came straight from the token endpoint over TLS, so it needs no signature check (OIDC Core 3.1.3.7).
     const email = (typeof claims.email === "string" ? claims.email : c.p === "outlook" && typeof claims.preferred_username === "string" ? claims.preferred_username : "").toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ConnectError("The provider did not return an email address");
     if (c.p === "gmail" && claims.email_verified !== true) throw new ConnectError("The Google account's email is not verified");
+    if (c.p === "gmail" && !(t.scope ?? "").includes("gmail.modify")) throw new ConnectError("The mail permission was not granted; connect again and allow access to Gmail");
+    if (c.p === "outlook" && String(claims.tid ?? "").toLowerCase() !== (this.cfg.microsoft?.tenant ?? "").toLowerCase()) throw new ConnectError("The Microsoft account is not from this organization's tenant");
     return { provider: c.p, email, refreshToken: t.refresh_token, purpose: c.u };
   }
 }
@@ -113,20 +118,20 @@ function decodeClaims(idToken: string | undefined): Record<string, unknown> {
 }
 
 // ---- invites: signed, expiring, bound to one org, one role and one mailbox address ----
-export interface Invite { orgId: string; email: string; role: "user" | "viewer" | "analyst" | "admin"; exp: number }
+export interface Invite { id: string; orgId: string; email: string; role: "user" | "viewer" | "analyst" | "admin"; exp: number }
 const INVITE_DAYS = 7;
 
-export function makeInvite(secret: string, i: Omit<Invite, "exp">, now = Date.now()): { token: string; exp: number } {
+export function makeInvite(secret: string, i: Omit<Invite, "exp" | "id">, now = Date.now()): { token: string; exp: number } {
   const exp = Math.floor(now / 1000) + INVITE_DAYS * 86400;
-  return { token: signBlob(secret, JSON.stringify({ k: "invite", o: i.orgId, e: i.email.toLowerCase(), r: i.role, x: exp })), exp };
+  return { token: signBlob(secret, JSON.stringify({ k: "invite", j: randomBytes(12).toString("base64url"), o: i.orgId, e: i.email.toLowerCase(), r: i.role, x: exp })), exp };
 }
 
 export function readInvite(secret: string, token: string, now = Date.now()): Invite | null {
   const raw = verifyBlob(secret, token);
   if (!raw) return null;
   try {
-    const c = JSON.parse(raw) as { k?: string; o?: string; e?: string; r?: Invite["role"]; x?: number };
-    if (c.k !== "invite" || !c.o || !c.e || !c.r || typeof c.x !== "number" || c.x * 1000 < now) return null;
-    return { orgId: c.o, email: c.e, role: c.r, exp: c.x };
+    const c = JSON.parse(raw) as { k?: string; j?: string; o?: string; e?: string; r?: Invite["role"]; x?: number };
+    if (c.k !== "invite" || !c.j || !c.o || !c.e || !c.r || typeof c.x !== "number" || c.x * 1000 < now) return null;
+    return { id: c.j, orgId: c.o, email: c.e, role: c.r, exp: c.x };
   } catch { return null; }
 }

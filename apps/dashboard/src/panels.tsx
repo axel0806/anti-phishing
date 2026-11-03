@@ -350,7 +350,7 @@ export function PeopleTab({ api, me }: { api: Api; me: Me }) {
                       {Object.keys(ROLE_HELP).map((r) => <option key={r}>{r}</option>)}
                     </select>)}</td>
                   <td>{u.linked ? `${u.provider} connected` : "not connected"}</td>
-                  <td>{u.id !== me.id && <button type="button" className="ghost" onClick={() => { if (window.confirm(`Erase ${u.email} and everything stored about them? This cannot be undone.`)) void run(() => api.del(`/v1/admin/users/${u.id}`), "Person erased."); }}>Erase</button>}</td>
+                  <td className="nowrap">{u.id !== me.id && <button type="button" className="ghost" onClick={() => { void run(() => api.post(`/v1/admin/users/${u.id}/revoke-tokens`, {}), `${u.email} was signed out everywhere.`); }}>Sign out</button>}{" "}{u.id !== me.id && <button type="button" className="ghost" onClick={() => { if (window.confirm(`Erase ${u.email} and everything stored about them? This cannot be undone.`)) void run(() => api.del(`/v1/admin/users/${u.id}`), "Person erased."); }}>Erase</button>}</td>
                 </tr>
               ))}
             </tbody>
@@ -362,7 +362,7 @@ export function PeopleTab({ api, me }: { api: Api; me: Me }) {
 }
 
 /** Self-service: an extension token, and erasing your own account. */
-export function AccountTab({ api, me, onErased }: { api: Api; me: Me; onErased: () => void }) {
+export function AccountTab({ api, me, onErased, onSignedOutEverywhere }: { api: Api; me: Me; onErased: () => void; onSignedOutEverywhere?: () => void }) {
   const [days, setDays] = useState(30);
   const [tok, setTok] = useState<{ token: string; expiresAt: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -374,6 +374,10 @@ export function AccountTab({ api, me, onErased }: { api: Api; me: Me; onErased: 
         <button type="button" onClick={() => api.post<{ token: string; expiresAt: string }>("/v1/me/token", { days }).then((t) => { setTok(t); setErr(null); }, (e) => setErr(message(e)))}>Create token</button>
         {tok && <><p>Expires {new Date(tok.expiresAt).toLocaleDateString()}. Server address: <code>{window.location.origin}</code></p><textarea readOnly rows={4} value={tok.token} onFocus={(e) => e.target.select()} /></>}
         {err && <p className="error" role="alert">{err}</p>}
+      </Panel>
+      <Panel title="Sign out everywhere">
+        <p className="muted">Ends every session and extension token issued for {me.email} so far, on every device. You will need to sign in again, and to paste a new token into the extension.</p>
+        <button type="button" onClick={() => { if (window.confirm("Sign out of every device?")) void api.post("/v1/me/revoke-tokens", {}).then(() => onSignedOutEverywhere?.(), (e) => setErr(message(e))); }}>Sign out everywhere</button>
       </Panel>
       <Panel title="Erase my account">
         <p className="muted">Removes {me.email}, their scan history, feedback and personal lists. Mail in the mailbox is never touched. To also revoke access, remove the app in your Google or Microsoft account settings.</p>

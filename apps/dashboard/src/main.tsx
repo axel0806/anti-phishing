@@ -46,7 +46,7 @@ function Shell({ token, onSignOut }: { token: string; onSignOut: (notice?: strin
         {current === "policy" && <PolicyTab api={api} me={u} />}
         {current === "deploy" && <DeployTab />}
         {current === "audit" && <AuditTab api={api} />}
-        {current === "account" && <AccountTab api={api} me={u} onErased={() => onSignOut("Your account was erased.")} />}
+        {current === "account" && <AccountTab api={api} me={u} onErased={() => onSignOut("Your account was erased.")} onSignedOutEverywhere={() => onSignOut("You were signed out everywhere. Sign in again.")} />}
       </main>
     </>
   );

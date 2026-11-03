@@ -28,7 +28,7 @@ Generate secrets with `node -e "console.log(require('crypto').randomBytes(32).to
 
 ## 3. Microsoft (Outlook, Microsoft 365)
 
-1. In the Entra admin center: **App registrations > New registration**. Supported account types: *this organization only* for one company (set `MICROSOFT_TENANT` to the tenant ID), or *any organization* with `MICROSOFT_TENANT=organizations`.
+1. In the Entra admin center: **App registrations > New registration**. Supported account types: *this organization only*, and set `MICROSOFT_TENANT` to the **tenant ID** (a GUID). Browser sign-in for Outlook requires this: with `common`, `organizations` or a domain name, anyone can run their own Microsoft tenant and claim any email address, so the server cannot trust who is signing in. (Those settings still work for the command-line `link-mail`.)
 2. Redirect URI, platform **Web**: **`<PUBLIC_URL>/connect/callback`**.
 3. **API permissions > Microsoft Graph > Delegated**: `Mail.ReadWrite`, `offline_access`, `openid`, `email`. An admin can grant consent for everyone under *Grant admin consent*, so employees are not asked one by one.
 4. **Certificates & secrets**: create a client secret and copy its *value* into `MICROSOFT_CLIENT_SECRET`.
@@ -44,10 +44,10 @@ Generate secrets with `node -e "console.log(require('crypto').randomBytes(32).to
 
 1. Dashboard > **People** > enter their email address and a role > **Create invite link**.
 2. Send them the link (it works for 7 days and only for that address).
-3. They open it, connect **their own mailbox**, and get a token to paste into the browser extension or Outlook add-in, together with your server's address.
+3. They open it, connect **their own mailbox**, and get a token to paste into the browser extension or Outlook add-in, together with your server's address. The link works **once**; the token it shows is an *extension token*: it can scan and read settings, but can never act as an administrator, create other tokens or erase the account.
 4. Roles: `user` is a protected mailbox only; `viewer` sees the dashboard overview; `analyst` also reads the email log; `admin` manages everything.
 
-If someone's access was revoked, or they changed password and the link broke, create a fresh invite for the same address: it reconnects them and keeps their role.
+If someone's access was revoked, or the link was used up, create a fresh invite for the same address: it reconnects them and keeps their role. To cut a person off at once, use **Sign out** (ends all their sessions and tokens) or **Erase** in the People tab; changing their role also ends their old sessions.
 
 Prefer the command line? `npm run api:cli -- create-user ...` still works.
 
@@ -64,6 +64,9 @@ Prefer the command line? `npm run api:cli -- create-user ...` still works.
 | `/setup` says "Mailbox connection is not set up" | `PUBLIC_URL` and a Google or Microsoft client are both required |
 | Google shows `redirect_uri_mismatch` | The redirect URI in the console is not exactly `<PUBLIC_URL>/connect/callback` |
 | "The provider returned no refresh token" | The account already granted access once; remove the app from its connected apps and connect again |
+| Outlook is missing from the setup or join page | `MICROSOFT_TENANT` is not a tenant ID (GUID); see step 3 |
+| "The Microsoft account is not from this organization's tenant" | They signed in with an account from another Microsoft tenant |
+| "This invite was already used" | Invites work once. Create a new one for the same address |
 | Microsoft says admin approval is required | An admin must click *Grant admin consent* in step 3 |
 | Invite page says the link is invalid | It expired (7 days) or was copied incompletely |
 | "This invite is for X, but you signed in as Y" | They chose a different account in the Google or Microsoft picker |

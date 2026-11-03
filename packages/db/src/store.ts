@@ -5,14 +5,14 @@ import type { Db } from "./migrate.ts";
 import { aiCache, aiUsage, feedback, listEntries, orgs, scanFlags, scans, senderHistory, users } from "./schema.ts";
 
 export type Role = "user" | "viewer" | "analyst" | "admin";
-export interface User { id: string; orgId: string | null; email: string; provider: string; role: Role; overrides: SettingsOverrides; encryptedTokens: string | null }
+export interface User { id: string; orgId: string | null; email: string; provider: string; role: Role; overrides: SettingsOverrides; encryptedTokens: string | null; tokensValidAfter: Date | null }
 export interface StoredScan { id: string; verdict: Verdict; pinned: boolean; /** null until a mailbox action was applied or ruled out */ action: string | null; sender: string | null; createdAt: Date }
 export interface Lists { allow: ListEntry[]; block: ListEntry[] }
 export interface ScanMeta { latencyMs: number; sender?: string; subjectHash?: string }
 
 const toUser = (r: typeof users.$inferSelect): User => ({
   id: r.id, orgId: r.orgId, email: r.email, provider: r.provider, role: r.role as Role,
-  overrides: r.settingsOverrides as SettingsOverrides, encryptedTokens: r.encryptedTokens,
+  overrides: r.settingsOverrides as SettingsOverrides, encryptedTokens: r.encryptedTokens, tokensValidAfter: r.tokensValidAfter,
 });
 
 /** All persistence the API needs. Works on any drizzle Postgres driver (node-postgres in production, PGlite in tests). */
@@ -57,6 +57,28 @@ export class Store {
   async setEncryptedTokens(userId: string, blob: string | null): Promise<void> {
     await this.db.update(users).set({ encryptedTokens: blob }).where(eq(users.id, userId));
   }
+  /** Refuses every session token issued before now for this user. */
+  async revokeTokens(userId: string): Promise<void> {
+    await this.db.update(users).set({ tokensValidAfter: new Date() }).where(eq(users.id, userId));
+  }
+  /** Marks an invite as used. True only the first time, so a link can be redeemed once. */
+  async consumeInvite(jti: string): Promise<boolean> {
+    return (await this.rows(sql`insert into used_invites (jti) values (${jti}) on conflict do nothing returning jti`)).length > 0;
+  }
+  /**
+   * Creates the first organization and its admin, only if the server has no users at all. Serialised, so two people finishing /setup at
+   * the same moment cannot both win. Returns null when somebody already did.
+   */
+  async createFirstAdmin(input: { email: string; provider: string; orgName: string }): Promise<{ user: User; orgId: string } | null> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('first-admin'))`);
+      const [n] = await tx.select({ n: count() }).from(users);
+      if (Number(n?.n ?? 0) > 0) return null;
+      const [org] = await tx.insert(orgs).values({ name: input.orgName }).returning({ id: orgs.id });
+      const [u] = await tx.insert(users).values({ email: input.email.toLowerCase(), orgId: org!.id, role: "admin", provider: input.provider }).returning();
+      return { user: toUser(u!), orgId: org!.id };
+    });
+  }
   async countUsers(): Promise<number> {
     const [r] = await this.db.select({ n: count() }).from(users);
     return Number(r?.n ?? 0);
@@ -72,6 +94,9 @@ export class Store {
   /** Erases a user and everything keyed to them (scans, flags, feedback, history, AI usage and their own list entries cascade or are removed here). */
   async deleteUser(userId: string): Promise<boolean> {
     return this.db.transaction(async (tx) => {
+      // The audit trail keeps what was done, not who the erased person was: blank their address wherever it appears.
+      const [who] = await tx.select({ email: users.email }).from(users).where(eq(users.id, userId));
+      if (who) await tx.execute(sql`update audit_log set target = null where target is not null and position(${who.email} in lower(target)) > 0`);
       await tx.delete(listEntries).where(and(eq(listEntries.ownerKind, "user"), eq(listEntries.ownerId, userId)));
       const r = await tx.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
       return r.length > 0;

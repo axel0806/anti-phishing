@@ -2,11 +2,12 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEq
 
 const b64 = (b: Buffer | string) => Buffer.from(b).toString("base64url");
 
-export interface TokenClaims { uid: string; sid: string; exp: number }
+/** `iat` is when the token was issued (checked against a user's revocation time). `sc: "ext"` marks an extension/add-in token, which never carries more than a plain user's rights. */
+export interface TokenClaims { uid: string; sid: string; exp: number; iat?: number; sc?: "ext" }
 
 /** Session token: v1.<claims>.<hmac>. Scoped to one server ID, so a token from another server never validates here. */
 export function signToken(secret: string, claims: TokenClaims): string {
-  const body = b64(JSON.stringify(claims));
+  const body = b64(JSON.stringify({ iat: Math.floor(Date.now() / 1000), ...claims }));
   return `v1.${body}.${b64(createHmac("sha256", secret).update("v1." + body).digest())}`;
 }
 

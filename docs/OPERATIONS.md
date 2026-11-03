@@ -60,3 +60,13 @@ Session tokens are bound to the user and expire (30 days for extension tokens by
 - Change notifications (Gmail push, Microsoft Graph subscriptions) are not implemented; the product polls.
 - Rate limits are in memory per process: 60 requests/minute per address on public pages, 600/minute per user on the API, 12 rescans/minute. Set `TRUST_PROXY=true` only when a reverse proxy you control sets `X-Forwarded-For`.
 - There is no per-organization encryption key and no KMS integration: one `TOKEN_KEY` protects all tokens.
+
+## Things the second review flagged that are accepted or only documented
+
+- **Several API replicas:** the setup token is generated per process when `SETUP_TOKEN` is not set, so each replica prints a different one. Set `SETUP_TOKEN` yourself when running more than one API process, or run setup before scaling out.
+- **`/setup` reopens if every user is erased.** A server with zero users is a fresh server by definition. If you keep a permanent `SETUP_TOKEN` in `.env`, remove it once you have an administrator.
+- **`TRUST_PROXY=true` trusts every hop's `X-Forwarded-For`.** That is right with the bundled Caddy (it overwrites the header and the API port is bound to localhost), but spoofable behind a proxy that appends to it. Use it only where the proxy is the sole way in.
+- **Mailbox leases are released unconditionally** when a pass ends. If a pass outlives its 5-minute lease and a second worker takes over, the first one's release can free the second's lease early. Scans stay idempotent, so the cost is duplicated work, not duplicated actions.
+- **The last-admin check on erasure is read-then-delete**, so two admins erasing themselves at the same instant could leave an organization without one. The server stays usable; use the command line (`set-role`) to restore an admin.
+- **ZIP inspection reads local file headers**, not the central directory. Archives with more than 4,000 entries are only partly listed, and a stored inner archive can show its own entries.
+- **Extension tokens and sessions are stateless.** They expire on their own (30 days by default) and can be ended early with *Sign out* / *Sign out everywhere* in the dashboard, which refuses every token issued before that moment.

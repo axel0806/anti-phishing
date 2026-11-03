@@ -15,6 +15,8 @@ export const users = pgTable("users", {
   role: text("role").notNull().default("user"), // user | viewer | analyst | admin
   encryptedTokens: text("encrypted_tokens"),
   settingsOverrides: jsonb("settings_overrides").notNull().default({}),
+  /** Session tokens issued before this moment are refused ("sign out everywhere", role changes). */
+  tokensValidAfter: timestamp("tokens_valid_after", { withTimezone: true }),
 });
 
 export const listEntries = pgTable("list_entries", {

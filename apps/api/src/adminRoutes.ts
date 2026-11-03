@@ -189,14 +189,22 @@ export function registerAdminRoutes(priv: FastifyInstance, deps: Deps): void {
     const t = await member(req, reply, req.params.id);
     if (!t) return;
     await store.setUserRole(t.id, body.data.role);
+    await store.revokeTokens(t.id); // old sessions were issued under the old role
     await admin.audit(req.user!.orgId!, req.user!.id, "user.role", `${t.email} ${t.role} -> ${body.data.role}`);
+    return { ok: true };
+  });
+  priv.post<{ Params: { id: string } }>("/v1/admin/users/:id/revoke-tokens", { preHandler: need("admin") }, async (req, reply) => {
+    const t = await member(req, reply, req.params.id);
+    if (!t) return;
+    await store.revokeTokens(t.id);
+    await admin.audit(req.user!.orgId!, req.user!.id, "user.revoke_sessions", t.email);
     return { ok: true };
   });
   priv.delete<{ Params: { id: string } }>("/v1/admin/users/:id", { preHandler: need("admin") }, async (req, reply) => {
     const t = await member(req, reply, req.params.id);
     if (!t) return;
     await store.deleteUser(t.id);
-    await admin.audit(req.user!.orgId!, req.user!.id, "user.erase", t.email);
+    await admin.audit(req.user!.orgId!, req.user!.id, "user.erase", `user ${t.id}`); // the id, not the address: erasing must not write the address back into the audit trail
     return { ok: true };
   });
 
