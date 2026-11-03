@@ -11,10 +11,12 @@ export interface TabDef { id: string; label: string; min: Role }
 export const TABS: TabDef[] = [
   { id: "overview", label: "Overview", min: "viewer" },
   { id: "log", label: "Email log", min: "analyst" },
+  { id: "people", label: "People", min: "admin" },
   { id: "lists", label: "Lists", min: "admin" },
   { id: "policy", label: "Policy", min: "admin" },
   { id: "deploy", label: "Deployment", min: "admin" },
   { id: "audit", label: "Audit", min: "admin" },
+  { id: "account", label: "Account", min: "viewer" },
 ];
 export const visibleTabs = (role: Role | undefined): TabDef[] => TABS.filter((t) => atLeast(role, t.min));
 
@@ -59,7 +61,8 @@ export function makeApi(token: string, fetchFn: Fetch = (i, init) => fetch(i, in
     get: <T>(path: string) => call<T>("GET", path),
     put: <T>(path: string, body: unknown) => call<T>("PUT", path, body),
     post: <T>(path: string, body: unknown) => call<T>("POST", path, body),
-    del: <T>(path: string, body: unknown) => call<T>("DELETE", path, body),
+    patch: <T>(path: string, body: unknown) => call<T>("PATCH", path, body),
+    del: <T>(path: string, body?: unknown) => call<T>("DELETE", path, body),
     /** Downloads a CSV through the authenticated API (a plain link could not send the bearer token). */
     csv: async (path: string): Promise<string> => {
       const res = await fetchFn(base + path, { headers: { authorization: `Bearer ${token}` } });

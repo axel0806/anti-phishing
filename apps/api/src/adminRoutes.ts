@@ -3,6 +3,7 @@ import { z } from "zod";
 import { DEFAULT_WEIGHTS, type FlagId } from "@ap/shared";
 import type { AdminQueries, Range, Store, User } from "@ap/db";
 import { toCsv } from "./csv.ts";
+import { makeInvite } from "./connect.ts";
 import { fail } from "./errors.ts";
 import type { ScanService } from "./service.ts";
 
@@ -22,7 +23,7 @@ const LogQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100000).default(50), offset: z.coerce.number().int().min(0).default(0),
 });
 
-interface Deps { store: Store; admin: AdminQueries; service: ScanService }
+interface Deps { store: Store; admin: AdminQueries; service: ScanService; secret?: string; publicUrl?: string }
 
 function parseRange(q: { from?: string; to?: string }): Range | string {
   const day = (s: string) => (DAY.test(s) && !Number.isNaN(Date.parse(s + "T00:00:00Z")) ? new Date(s + "T00:00:00Z") : null);
@@ -156,6 +157,47 @@ export function registerAdminRoutes(priv: FastifyInstance, deps: Deps): void {
     });
   act("release", "not_phishing");
   act("requarantine", "phishing");
+
+  // ---- people: invites, roles, removal (admin only) ----
+  const ROLES = z.enum(["user", "viewer", "analyst", "admin"]);
+  priv.get("/v1/admin/org-users", { preHandler: need("admin") }, async (req) => ({ users: await store.listOrgUsers(req.user!.orgId!) }));
+
+  priv.post("/v1/admin/invites", { preHandler: need("admin") }, async (req, reply) => {
+    const body = z.object({ email: z.string().trim().toLowerCase().email().max(200), role: ROLES.default("user") }).safeParse(req.body);
+    if (!body.success) return fail(reply, "validation", "Give a valid email address and a role (user, viewer, analyst or admin)");
+    if (!deps.secret || !deps.publicUrl) return fail(reply, "validation", "Set PUBLIC_URL on the server to create invite links");
+    const actor = req.user!;
+    const taken = await store.getUserByEmail(body.data.email);
+    if (taken && taken.orgId && taken.orgId !== actor.orgId) return fail(reply, "validation", "That mailbox already belongs to another organization");
+    const inv = makeInvite(deps.secret, { orgId: actor.orgId!, email: body.data.email, role: body.data.role });
+    await admin.audit(actor.orgId!, actor.id, "invite.create", `${body.data.email} as ${body.data.role}`);
+    return reply.code(201).send({ url: `${deps.publicUrl}/join/${inv.token}`, email: body.data.email, role: body.data.role, expiresAt: new Date(inv.exp * 1000).toISOString() });
+  });
+
+  /** The target must be another member of the caller's own org; otherwise the same 404 as a user that does not exist. */
+  const member = async (req: FastifyRequest, reply: FastifyReply, id: string) => {
+    const actor = req.user!;
+    const t = UUID.test(id) ? await store.getUser(id) : null;
+    if (!t || t.orgId !== actor.orgId) { fail(reply, "not_found", "No such user in your organization"); return null; }
+    if (t.id === actor.id) { fail(reply, "validation", "You cannot do this to your own account here"); return null; }
+    return t;
+  };
+  priv.patch<{ Params: { id: string } }>("/v1/admin/users/:id", { preHandler: need("admin") }, async (req, reply) => {
+    const body = z.object({ role: ROLES }).safeParse(req.body);
+    if (!body.success) return fail(reply, "validation", "role must be user, viewer, analyst or admin");
+    const t = await member(req, reply, req.params.id);
+    if (!t) return;
+    await store.setUserRole(t.id, body.data.role);
+    await admin.audit(req.user!.orgId!, req.user!.id, "user.role", `${t.email} ${t.role} -> ${body.data.role}`);
+    return { ok: true };
+  });
+  priv.delete<{ Params: { id: string } }>("/v1/admin/users/:id", { preHandler: need("admin") }, async (req, reply) => {
+    const t = await member(req, reply, req.params.id);
+    if (!t) return;
+    await store.deleteUser(t.id);
+    await admin.audit(req.user!.orgId!, req.user!.id, "user.erase", t.email);
+    return { ok: true };
+  });
 
   // ---- weight suggestions: shown, never applied ----
   priv.get("/v1/settings/suggestions", async (req) => {

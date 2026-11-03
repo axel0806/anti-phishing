@@ -36,6 +36,20 @@ describe("retention config", () => {
   });
 });
 
+describe("PUBLIC_URL and web onboarding config", () => {
+  it("is checked even without single sign-on, since invite links and the Outlook manifest are built from it", () => {
+    expect(() => loadConfig({ ...good, PUBLIC_URL: "http://phish.example" })).toThrow(/PUBLIC_URL must be an https URL/);
+    expect(() => loadConfig({ ...good, PUBLIC_URL: "not a url" })).toThrow(/PUBLIC_URL/);
+    expect(loadConfig({ ...good, PUBLIC_URL: "https://phish.example/" }).publicUrl).toBe("https://phish.example");
+    expect(loadConfig({ ...good, PUBLIC_URL: "http://localhost:8080" }).publicUrl).toBe("http://localhost:8080");
+  });
+  it("reads an optional SETUP_TOKEN and refuses a weak one", () => {
+    expect(loadConfig(good).setupToken).toBeUndefined();
+    expect(loadConfig({ ...good, SETUP_TOKEN: "a-long-enough-setup-token" }).setupToken).toBe("a-long-enough-setup-token");
+    expect(() => loadConfig({ ...good, SETUP_TOKEN: "short" })).toThrow(/SETUP_TOKEN/);
+  });
+});
+
 describe("OIDC single sign-on config", () => {
   const sso = { OIDC_ISSUER: "https://login.example/", OIDC_CLIENT_ID: "cid", OIDC_CLIENT_SECRET: "sec", PUBLIC_URL: "https://phish.example/" };
   it("is off by default", () => expect(loadConfig(good).oidc).toBeNull());

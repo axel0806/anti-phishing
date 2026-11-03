@@ -4,6 +4,8 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadConfig } from "./config.ts";
 import { Oidc } from "./oidc.ts";
+import { Connect } from "./connect.ts";
+import { randomBytes } from "node:crypto";
 import { loadDotEnv } from "./env.ts";
 import { aiProviderFromConfig } from "./aiProvider.ts";
 import { createLookups } from "./lookups.ts";
@@ -41,10 +43,18 @@ function builtSites() {
   return sites;
 }
 
+// Web onboarding needs a public address and at least one mail app registration. Without them the CLI still works.
+const connectFlow = cfg.publicUrl && (cfg.google || cfg.microsoft) ? new Connect({ secret: cfg.secret, publicUrl: cfg.publicUrl, google: cfg.google, microsoft: cfg.microsoft }) : undefined;
+const setupToken = cfg.setupToken ?? randomBytes(18).toString("base64url");
+
 if (cfg.role !== "worker") {
-  const app = buildApp({ store, service, admin, metrics, sites: builtSites(), publicUrl: cfg.publicUrl, oidc: cfg.oidc ? new Oidc({ ...cfg.oidc, secret: cfg.secret }) : undefined, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
+  const app = buildApp({ store, service, admin, metrics, sites: builtSites(), publicUrl: cfg.publicUrl, connect: connectFlow, tokenKey: cfg.tokenKey, setupToken, oidc: cfg.oidc ? new Oidc({ ...cfg.oidc, secret: cfg.secret }) : undefined, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
   await app.listen({ port: cfg.port, host: "0.0.0.0" });
   console.log(`API listening on :${cfg.port} (server id ${cfg.serverId})`);
+  if (await store.countUsers() === 0) {
+    if (connectFlow) console.log(["", `First run: open ${cfg.publicUrl}/setup and enter this setup token:`, `  ${setupToken}`, ""].join("\n"));
+    else console.log(["", "First run: set PUBLIC_URL and GOOGLE_CLIENT_ID/SECRET (or MICROSOFT_CLIENT_ID) to create your first admin in the browser,", "or use: npm run api:cli -- create-user you@example.com --admin", ""].join("\n"));
+  }
 }
 if (cfg.role !== "api") {
   let running = false;

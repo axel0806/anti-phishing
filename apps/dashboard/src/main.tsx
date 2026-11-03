@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ApiError, forgetToken, makeApi, saveToken, takeToken, visibleTabs, type Me } from "./api.ts";
 import { Panel, Status, useLoad } from "./components.tsx";
-import { AuditTab, DeployTab, EmailLog, ListsTab, Overview, PolicyTab } from "./panels.tsx";
+import { AccountTab, AuditTab, DeployTab, EmailLog, ListsTab, Overview, PeopleTab, PolicyTab } from "./panels.tsx";
 
 function SignIn({ onToken, notice }: { onToken: (t: string) => void; notice?: string }) {
   const [t, setT] = useState("");
@@ -11,6 +11,7 @@ function SignIn({ onToken, notice }: { onToken: (t: string) => void; notice?: st
       <Panel title="Sign in">
         {notice && <p className="error" role="alert">{notice}</p>}
         <p><a className="button" href="/admin/login">Sign in with single sign-on</a></p>
+        <p className="muted">New server with no users yet? <a href="/setup">Run first-time setup</a>.</p>
         <p className="muted">If single sign-on is not set up, paste a session token (an administrator can create one with <code>npm run api:cli -- token</code>).</p>
         <form onSubmit={(e) => { e.preventDefault(); if (t.trim()) onToken(t.trim()); }}>
           <label className="block">Session token <input type="password" autoComplete="off" value={t} onChange={(e) => setT(e.target.value)} /></label>
@@ -40,10 +41,12 @@ function Shell({ token, onSignOut }: { token: string; onSignOut: (notice?: strin
       <main>
         {current === "overview" && <Overview api={api} me={u} />}
         {current === "log" && <EmailLog api={api} me={u} />}
+        {current === "people" && <PeopleTab api={api} me={u} />}
         {current === "lists" && <ListsTab api={api} />}
         {current === "policy" && <PolicyTab api={api} me={u} />}
         {current === "deploy" && <DeployTab />}
         {current === "audit" && <AuditTab api={api} />}
+        {current === "account" && <AccountTab api={api} me={u} onErased={() => onSignOut("Your account was erased.")} />}
       </main>
     </>
   );

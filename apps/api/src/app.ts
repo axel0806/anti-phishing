@@ -9,6 +9,8 @@ import { registerAdminRoutes } from "./adminRoutes.ts";
 import { Oidc, OidcError } from "./oidc.ts";
 import { fail } from "./errors.ts";
 import { registerSites, type Sites } from "./sites.ts";
+import { registerOnboarding } from "./onboarding.ts";
+import type { ConnectFlow } from "./connect.ts";
 import { renderManifest } from "../../outlook-addin/src/manifest.ts";
 import type { Metrics } from "./metrics.ts";
 import { MailUnavailable, ScanInProgress, UnsupportedIdFormat, type ScanService } from "./service.ts";
@@ -31,6 +33,12 @@ export interface AppDeps {
   publicUrl?: string;
   /** Bearer token for /metrics from non-loopback hosts. Without it, only loopback callers may read metrics. */
   metricsToken?: string;
+  /** Browser-based mailbox connection (web onboarding). Needs PUBLIC_URL and a Google or Microsoft app. */
+  connect?: ConnectFlow;
+  /** Key for OAuth refresh tokens at rest (TOKEN_KEY); required for web onboarding to store a connected mailbox. */
+  tokenKey?: string;
+  /** One-time token that unlocks /setup on a server with no users. */
+  setupToken?: string;
 }
 
 declare module "fastify" {
@@ -51,7 +59,7 @@ const REST_ID = /^[A-Za-z0-9_=+/-]{1,500}$/;
 
 export function buildApp(deps: AppDeps): FastifyInstance {
   const { store, service, serverId, secret, admin } = deps;
-  const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
+  const app = Fastify({ logger: false, bodyLimit: 64 * 1024, routerOptions: { maxParamLength: 1000 } }); // signed invite links in the URL path are longer than the default 100
   // RFC 7386 merge patches arrive as application/merge-patch+json; treat them as JSON.
   app.addContentTypeParser("application/merge-patch+json", { parseAs: "string" }, (_req, body, done) => {
     try {
@@ -101,6 +109,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
   }
 
+  if (deps.tokenKey) registerOnboarding(app, { store, admin, connect: deps.connect, secret, serverId, tokenKey: deps.tokenKey, setupToken: deps.setupToken });
+
   if (deps.sites) registerSites(app, deps.sites);
   if (deps.sites?.addin) {
     app.get("/addin/manifest.xml", async (_req, reply) => {
@@ -135,11 +145,30 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       req.user = user;
     });
 
-    if (admin) registerAdminRoutes(priv, { store, admin, service });
+    if (admin) registerAdminRoutes(priv, { store, admin, service, secret, publicUrl: deps.publicUrl });
 
     priv.get("/v1/me", async (req) => {
       const u = req.user!;
       return { id: u.id, email: u.email, role: u.role, orgId: u.orgId, provider: u.provider };
+    });
+
+    // An extension or add-in token, minted from an already signed-in session (e.g. the dashboard) for up to 90 days.
+    priv.post("/v1/me/token", async (req, reply) => {
+      const body = z.object({ days: z.number().int().min(1).max(90).default(30) }).safeParse(req.body ?? {});
+      if (!body.success) return fail(reply, "validation", "days must be a whole number from 1 to 90");
+      const exp = Math.floor(Date.now() / 1000) + body.data.days * 86400;
+      return { token: signToken(secret, { uid: req.user!.id, sid: serverId, exp }), expiresAt: new Date(exp * 1000).toISOString() };
+    });
+    // Self-service erasure: removes the account and everything stored about it. The last admin of an org must hand over first.
+    priv.delete("/v1/me", async (req, reply) => {
+      const u = req.user!;
+      if (u.orgId && u.role === "admin") {
+        const admins = (await store.listOrgUsers(u.orgId)).filter((x) => x.role === "admin");
+        if (admins.length <= 1) return fail(reply, "validation", "You are the organization's only admin. Make someone else an admin first.");
+      }
+      if (u.orgId) await admin?.audit(u.orgId, u.id, "user.self_erase", u.email); // before the delete: the row references the actor
+      await store.deleteUser(u.id);
+      return { ok: true };
     });
 
     priv.get<{ Querystring: { scope?: string } }>("/v1/lists", async (req, reply) => {

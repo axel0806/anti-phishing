@@ -302,3 +302,81 @@ export function AuditTab({ api }: { api: Api }) {
     </Panel>
   );
 }
+
+interface OrgUser { id: string; email: string; role: "user" | "viewer" | "analyst" | "admin"; provider: string; linked: boolean }
+const ROLE_HELP: Record<string, string> = { user: "protected mailbox only", viewer: "dashboard overview", analyst: "+ email log", admin: "everything" };
+
+/** Invite colleagues, change roles, remove people. Invites are links the invitee opens to connect their own mailbox. */
+export function PeopleTab({ api, me }: { api: Api; me: Me }) {
+  const people = useLoad(() => api.get<{ users: OrgUser[] }>("/v1/admin/org-users"), []);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("user");
+  const [link, setLink] = useState<{ url: string; email: string; expiresAt: string } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    setMsg(null); setErr(null);
+    try { await fn(); setMsg(ok); people.reload(); } catch (e) { setErr(message(e)); }
+  };
+  return (
+    <>
+      <Panel title="Invite someone">
+        <p className="muted">They open the link, connect their own Gmail or Outlook mailbox, and get their extension token. The link works for 7 days and only for the address you enter.</p>
+        <form className="filters" onSubmit={async (e) => {
+          e.preventDefault(); setErr(null); setMsg(null); setLink(null);
+          try { setLink(await api.post("/v1/admin/invites", { email, role })); setEmail(""); } catch (x) { setErr(message(x)); }
+        }}>
+          <label>Email <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+          <label>Role <select value={role} onChange={(e) => setRole(e.target.value)}>{Object.entries(ROLE_HELP).map(([r, h]) => <option key={r} value={r}>{r} ({h})</option>)}</select></label>
+          <button type="submit">Create invite link</button>
+        </form>
+        {link && <><p>Send this link to <b>{link.email}</b> (expires {new Date(link.expiresAt).toLocaleDateString()}):</p><textarea readOnly rows={3} value={link.url} onFocus={(e) => e.target.select()} /></>}
+        {err && <p className="error" role="alert">{err}</p>}
+      </Panel>
+      <Panel title="People in your organization">
+        <Status loading={people.loading} error={people.error} />
+        {msg && <p role="status">{msg}</p>}
+        {people.data && (
+          <table>
+            <thead><tr><th>Email</th><th>Role</th><th>Mailbox</th><th /></tr></thead>
+            <tbody>
+              {people.data.users.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.email}{u.id === me.id ? " (you)" : ""}</td>
+                  <td>{u.id === me.id ? u.role : (
+                    <select value={u.role} aria-label={`Role for ${u.email}`} onChange={(e) => run(() => api.patch(`/v1/admin/users/${u.id}`, { role: e.target.value }), "Role updated.")}>
+                      {Object.keys(ROLE_HELP).map((r) => <option key={r}>{r}</option>)}
+                    </select>)}</td>
+                  <td>{u.linked ? `${u.provider} connected` : "not connected"}</td>
+                  <td>{u.id !== me.id && <button type="button" className="ghost" onClick={() => { if (window.confirm(`Erase ${u.email} and everything stored about them? This cannot be undone.`)) void run(() => api.del(`/v1/admin/users/${u.id}`), "Person erased."); }}>Erase</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+    </>
+  );
+}
+
+/** Self-service: an extension token, and erasing your own account. */
+export function AccountTab({ api, me, onErased }: { api: Api; me: Me; onErased: () => void }) {
+  const [days, setDays] = useState(30);
+  const [tok, setTok] = useState<{ token: string; expiresAt: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <>
+      <Panel title="Extension and add-in token">
+        <p className="muted">Paste this into the browser extension or Outlook add-in settings, with this server's address. It works like a password.</p>
+        <label>Valid for <select value={days} onChange={(e) => setDays(Number(e.target.value))}>{[7, 30, 90].map((d) => <option key={d} value={d}>{d} days</option>)}</select></label>
+        <button type="button" onClick={() => api.post<{ token: string; expiresAt: string }>("/v1/me/token", { days }).then((t) => { setTok(t); setErr(null); }, (e) => setErr(message(e)))}>Create token</button>
+        {tok && <><p>Expires {new Date(tok.expiresAt).toLocaleDateString()}. Server address: <code>{window.location.origin}</code></p><textarea readOnly rows={4} value={tok.token} onFocus={(e) => e.target.select()} /></>}
+        {err && <p className="error" role="alert">{err}</p>}
+      </Panel>
+      <Panel title="Erase my account">
+        <p className="muted">Removes {me.email}, their scan history, feedback and personal lists. Mail in the mailbox is never touched. To also revoke access, remove the app in your Google or Microsoft account settings.</p>
+        <button type="button" onClick={() => { if (window.confirm("Erase your account and everything stored about it? This cannot be undone.")) void api.del("/v1/me").then(onErased, (e) => setErr(message(e))); }}>Erase my account</button>
+      </Panel>
+    </>
+  );
+}

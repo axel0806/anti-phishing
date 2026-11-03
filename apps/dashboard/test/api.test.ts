@@ -5,8 +5,10 @@ const mem = () => { const m = new Map<string, string>(); return { getItem: (k: s
 
 describe("tabs by role", () => {
   it("shows only what the role may use", () => {
-    expect(visibleTabs("viewer").map((t) => t.id)).toEqual(["overview"]);
-    expect(visibleTabs("analyst").map((t) => t.id)).toEqual(["overview", "log"]);
+    expect(visibleTabs("viewer").map((t) => t.id)).toEqual(["overview", "account"]);
+    expect(visibleTabs("analyst").map((t) => t.id)).toEqual(["overview", "log", "account"]);
+    expect(visibleTabs("admin").map((t) => t.id)).toContain("people");
+    expect(visibleTabs("analyst").map((t) => t.id)).not.toContain("people");
     expect(visibleTabs("admin").map((t) => t.id)).toContain("audit");
     expect(visibleTabs(undefined)).toEqual([]);
   });

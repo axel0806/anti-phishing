@@ -57,6 +57,26 @@ export class Store {
   async setEncryptedTokens(userId: string, blob: string | null): Promise<void> {
     await this.db.update(users).set({ encryptedTokens: blob }).where(eq(users.id, userId));
   }
+  async countUsers(): Promise<number> {
+    const [r] = await this.db.select({ n: count() }).from(users);
+    return Number(r?.n ?? 0);
+  }
+  /** An org's members for the admin Users tab. Never includes tokens, only whether a mailbox is linked. */
+  async listOrgUsers(orgId: string): Promise<{ id: string; email: string; role: Role; provider: string; linked: boolean }[]> {
+    const rows = await this.db.select().from(users).where(eq(users.orgId, orgId));
+    return rows.map((r) => ({ id: r.id, email: r.email, role: r.role as Role, provider: r.provider, linked: r.encryptedTokens !== null })).sort((x, y) => x.email.localeCompare(y.email));
+  }
+  async setUserMembership(userId: string, m: { orgId: string | null; role: Role; provider: string }): Promise<void> {
+    await this.db.update(users).set({ orgId: m.orgId, role: m.role, provider: m.provider }).where(eq(users.id, userId));
+  }
+  /** Erases a user and everything keyed to them (scans, flags, feedback, history, AI usage and their own list entries cascade or are removed here). */
+  async deleteUser(userId: string): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      await tx.delete(listEntries).where(and(eq(listEntries.ownerKind, "user"), eq(listEntries.ownerId, userId)));
+      const r = await tx.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+      return r.length > 0;
+    });
+  }
   /** Users whose mailbox is linked: the worker scans these. */
   async listLinkedUsers(): Promise<User[]> {
     const rows = await this.db.select().from(users).where(sql`${users.encryptedTokens} is not null`);

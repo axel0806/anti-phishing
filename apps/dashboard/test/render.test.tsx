@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 import { makeApi, type Me } from "../src/api.ts";
-import { AuditTab, DeployTab, EmailLog, ListsTab, Overview } from "../src/panels.tsx";
+import { AccountTab, AuditTab, DeployTab, EmailLog, ListsTab, Overview, PeopleTab } from "../src/panels.tsx";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -19,6 +19,7 @@ const routes: Record<string, unknown> = {
   "/v1/admin/stats/users": { rows: [{ email: "a@corp.test", phishing: 1, suspicious: 0 }] },
   "/v1/admin/scans": { rows: [{ messageId: "m1", userId: "u1", userEmail: "a@corp.test", sender: "x@evil.test", score: 90, verdict: "phishing", pinned: false, createdAt: "2026-01-01T00:00:00Z", flags: ["dmarc_fail"] }], total: 1 },
   "/v1/lists": { allow: [], block: [{ matchType: "domain", value: "evil.test" }] },
+  "/v1/admin/org-users": { users: [{ id: "u", email: "me@corp.test", role: "admin", provider: "gmail", linked: true }, { id: "w", email: "new@corp.test", role: "user", provider: "outlook", linked: false }] },
   "/v1/admin/audit": { rows: [{ createdAt: "2026-01-01T00:00:00Z", actorEmail: null, action: "policy.update", target: null }] },
 };
 const seen: string[] = [];
@@ -64,5 +65,23 @@ describe("dashboard panels render from API data", () => {
   it("shows an API error instead of crashing", async () => {
     const broken = makeApi("t", async () => new Response("{\"error\":{\"code\":\"forbidden\",\"message\":\"Your role does not allow this\"}}", { status: 403 }));
     expect((await render(<AuditTab api={broken} />)).textContent).toContain("Your role does not allow this");
+  });
+});
+
+describe("people and account tabs", () => {
+  it("lists members with connection state, and cannot change or erase yourself", async () => {
+    const host = await render(<PeopleTab api={api} me={me("admin")} />);
+    expect(host.textContent).toContain("new@corp.test");
+    expect(host.textContent).toContain("not connected");
+    expect(host.textContent).toContain("gmail connected");
+    expect(host.querySelectorAll("button.ghost").length).toBe(1); // Erase for the other person only
+    expect(host.querySelector("select[aria-label=\"Role for me@corp.test\"]")).toBeNull();
+    expect(host.querySelector("select[aria-label=\"Role for new@corp.test\"]")).not.toBeNull();
+    expect(host.textContent).toContain("Create invite link");
+  });
+  it("account tab offers a token and erasure", async () => {
+    const host = await render(<AccountTab api={api} me={me("viewer")} onErased={() => {}} />);
+    expect(host.textContent).toContain("Create token");
+    expect(host.textContent).toContain("Erase my account");
   });
 });

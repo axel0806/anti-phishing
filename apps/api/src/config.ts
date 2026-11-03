@@ -34,6 +34,8 @@ export interface Config {
   dataDir: string;
   /** Lets a Prometheus server on another host read /metrics. Loopback callers never need it. */
   metricsToken: string | undefined;
+  /** Unlocks /setup on a server with no users. Undefined = generate one at startup and print it. */
+  setupToken: string | undefined;
   retentionDays: number;
   /** The https address users reach this server at; enables the Outlook add-in manifest and SSO redirects. */
   publicUrl: string | undefined;
@@ -99,14 +101,16 @@ export function loadConfig(env: Env): Config {
       ai = { kind, apiKey: env.AI_API_KEY || undefined, model: env.AI_MODEL ?? "", baseUrl: env.AI_BASE_URL, timeoutMs, maxUserBudgetUsd, price: { inputPerMTokUsd: pin, outputPerMTokUsd: pout } };
     } else problems.push("AI_PROVIDER must be none, anthropic or openai");
   }
+  const secureOrLocal = (u: string) => { try { const x = new URL(u); return x.protocol === "https:" || (x.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(x.hostname)); } catch { return false; } };
+  // Invite links, the Outlook manifest and OAuth redirects are all built from this, so check it whether or not SSO is on.
+  if (env.PUBLIC_URL && !secureOrLocal(env.PUBLIC_URL)) problems.push("PUBLIC_URL must be an https URL (http is allowed for localhost only)");
+  if (env.SETUP_TOKEN !== undefined && env.SETUP_TOKEN.length < 16) problems.push("SETUP_TOKEN must be at least 16 characters (or leave it unset to have one generated at startup)");
   let oidc: OidcSettings | null = null;
   const oidcKeys = ["OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"] as const;
   if (oidcKeys.some((k) => env[k])) {
     for (const k of oidcKeys) if (!env[k]) problems.push(`${k} is required when single sign-on is configured`);
     if (!env.PUBLIC_URL) problems.push("PUBLIC_URL (the address users reach this server at) is required for single sign-on");
-    const secureOrLocal = (u: string) => { try { const x = new URL(u); return x.protocol === "https:" || (x.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(x.hostname)); } catch { return false; } };
     if (env.OIDC_ISSUER && !secureOrLocal(env.OIDC_ISSUER)) problems.push("OIDC_ISSUER must be an https URL");
-    if (env.PUBLIC_URL && !secureOrLocal(env.PUBLIC_URL)) problems.push("PUBLIC_URL must be an https URL (http is allowed for localhost only)");
     if (oidcKeys.every((k) => env[k]) && env.PUBLIC_URL) {
       oidc = {
         issuer: env.OIDC_ISSUER!, clientId: env.OIDC_CLIENT_ID!, clientSecret: env.OIDC_CLIENT_SECRET!,
@@ -135,5 +139,6 @@ export function loadConfig(env: Env): Config {
     microsoft: env.MICROSOFT_CLIENT_ID ? { clientId: env.MICROSOFT_CLIENT_ID, clientSecret: env.MICROSOFT_CLIENT_SECRET || undefined, tenant } : null,
     dataDir: env.DATA_DIR ?? ".data",
     metricsToken: env.METRICS_TOKEN || undefined,
+    setupToken: env.SETUP_TOKEN || undefined,
   };
 }

@@ -203,3 +203,39 @@ describe("recent scans and history size", () => {
     expect(await store.recentScanIds(u.id, 0)).toEqual([]);
   });
 });
+
+describe("onboarding and erasure", () => {
+  it("lists an org's users with whether the mailbox is linked, and counts users", async () => {
+    const before = await store.countUsers();
+    const org = await store.createOrg("Listing");
+    const a = await store.createUser({ email: "a@listing.example", orgId: org.id, role: "admin" });
+    await store.createUser({ email: "b@listing.example", orgId: org.id });
+    await store.setEncryptedTokens(a.id, "blob");
+    const rows = await store.listOrgUsers(org.id);
+    expect(rows.map((r) => [r.email, r.linked]).sort()).toEqual([["a@listing.example", true], ["b@listing.example", false]]);
+    expect(JSON.stringify(rows)).not.toContain("blob"); // never exposes tokens
+    expect(await store.countUsers()).toBe(before + 2);
+  });
+  it("deleting a user removes their scans, feedback, own lists and settings but not their org's", async () => {
+    const org = await store.createOrg("Erase");
+    const u = await store.createUser({ email: "gone@erase.example", orgId: org.id });
+    const keep = await store.createUser({ email: "keep@erase.example", orgId: org.id });
+    await store.saveScan(u.id, "m1", verdict("phishing", 90), { latencyMs: 1, sender: "x@y.example" });
+    await store.addFeedback(u.id, "m1", "not_phishing");
+    await store.addEntry({ kind: "user", id: u.id }, "block", { matchType: "domain", value: "mine.example" }, u.id);
+    await store.addEntry({ kind: "org", id: org.id }, "block", { matchType: "domain", value: "orgwide.example" }, keep.id);
+    expect(await store.deleteUser(u.id)).toBe(true);
+    expect(await store.getUser(u.id)).toBeNull();
+    expect(await store.getScan(u.id, "m1")).toBeNull();
+    expect((await store.listOwn(u.id)).block).toEqual([]);
+    expect((await store.listOwn(org.id)).block).toEqual([{ matchType: "domain", value: "orgwide.example" }]);
+    expect(await store.getUser(keep.id)).not.toBeNull();
+    expect(await store.deleteUser(u.id)).toBe(false);
+  });
+  it("can change a user's provider and org membership", async () => {
+    const org = await store.createOrg("Move");
+    const u = await store.createUser({ email: "mv@move.example" });
+    await store.setUserMembership(u.id, { orgId: org.id, role: "viewer", provider: "outlook" });
+    expect(await store.getUser(u.id)).toMatchObject({ orgId: org.id, role: "viewer", provider: "outlook" });
+  });
+});
