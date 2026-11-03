@@ -9,6 +9,10 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/local/package.json apps/local/
 COPY apps/extension/package.json apps/extension/
+COPY apps/dashboard/package.json apps/dashboard/
+COPY apps/outlook-addin/package.json apps/outlook-addin/
+COPY packages/ai/package.json packages/ai/
+COPY packages/ui/package.json packages/ui/
 COPY packages/shared/package.json packages/shared/
 COPY packages/scoring/package.json packages/scoring/
 COPY packages/parser/package.json packages/parser/
@@ -24,6 +28,10 @@ RUN npm ci --include=dev
 COPY tsconfig.json ./
 COPY packages packages
 COPY apps/api apps/api
+COPY apps/dashboard apps/dashboard
+COPY apps/outlook-addin apps/outlook-addin
+# Build the admin dashboard (/admin/) and Outlook task pane (/addin/); the API serves them from these dist folders.
+RUN node apps/dashboard/build.mjs && node apps/outlook-addin/build.mjs
 
 # Run as the unprivileged "node" user that ships with the image.
 USER node

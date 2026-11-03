@@ -122,7 +122,7 @@ describe("email log", () => {
     expect(ph.rows.map((r) => r.messageId).sort()).toEqual(["a1", "b2"]); // b2 became phishing after the user reported it
     const spf = await admin.scanLog(orgId, range(60, -1), { flag: "lookalike_domain" });
     expect(spf.rows.map((r) => r.messageId)).toEqual(["a1"]);
-    expect(Object.keys(all.rows[0]!).sort()).toEqual(["createdAt", "flags", "messageId", "pinned", "score", "sender", "userEmail", "verdict"]);
+    expect(Object.keys(all.rows[0]!).sort()).toEqual(["createdAt", "flags", "messageId", "pinned", "score", "sender", "userEmail", "userId", "verdict"]);
     expect((await admin.scanLog(orgId, range(60, -1), {}, { limit: 2, offset: 0 })).rows).toHaveLength(2);
     expect((await admin.scanLog(orgId, range(60, -1), {}, { limit: 2, offset: 0 })).total).toBe(5);
   });

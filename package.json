@@ -17,12 +17,17 @@
     "build:ext": "node apps/extension/build.mjs",
     "api": "tsx apps/api/src/main.ts",
     "api:cli": "tsx apps/api/src/cli.ts",
-    "corpus:ab": "tsx corpus/ab.ts"
+    "corpus:ab": "tsx corpus/ab.ts",
+    "build:dashboard": "node apps/dashboard/build.mjs",
+    "build:addin": "node apps/outlook-addin/build.mjs",
+    "build:ui": "npm run build:dashboard && npm run build:addin"
   },
   "devDependencies": {
     "@types/mailparser": "^3.9.0",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.23.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
     "esbuild": "^0.28.2",
     "happy-dom": "^21.0.4",
     "tsx": "^4.23.15",
@@ -39,6 +44,8 @@
     "mailparser": "^3.14.1",
     "parse5": "^8.1.0",
     "pg": "^8.23.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tldts": "^7.4.19"
   }
 }

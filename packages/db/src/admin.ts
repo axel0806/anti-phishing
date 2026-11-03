@@ -6,7 +6,7 @@ export interface Counts { scanned: number; safe: number; suspicious: number; phi
 export interface Page { limit: number; offset: number }
 export interface LogFilters { verdict?: "safe" | "suspicious" | "phishing"; flag?: string; sender?: string }
 export interface LogRow {
-  messageId: string; userEmail: string; sender: string | null; score: number; verdict: string; pinned: boolean; createdAt: Date; flags: string[];
+  messageId: string; userId: string; userEmail: string; sender: string | null; score: number; verdict: string; pinned: boolean; createdAt: Date; flags: string[];
 }
 
 const num = (v: unknown): number => Number(v ?? 0);
@@ -140,14 +140,14 @@ export class AdminQueries {
     const where = sql.join(conds, sql` and `);
     const [t] = await this.rows(sql`select count(*) as n from scans s join users u on u.id = s.user_id where ${where}`);
     const rows = await this.rows(sql`
-      select s.provider_message_id, u.email, s.sender, s.score, s.verdict, s.pinned, s.created_at,
+      select s.provider_message_id, u.id as user_id, u.email, s.sender, s.score, s.verdict, s.pinned, s.created_at,
         coalesce((select string_agg(x.flag_id, ',' order by x.flag_id) from scan_flags x where x.scan_id = s.id), '') as flags
       from scans s join users u on u.id = s.user_id where ${where}
       order by s.created_at desc, s.provider_message_id limit ${Math.min(page.limit, 500)} offset ${Math.max(page.offset, 0)}`);
     return {
       total: num(t?.n),
       rows: rows.map((x) => ({
-        messageId: String(x.provider_message_id), userEmail: String(x.email), sender: (x.sender as string | null) ?? null, score: num(x.score),
+        messageId: String(x.provider_message_id), userId: String(x.user_id), userEmail: String(x.email), sender: (x.sender as string | null) ?? null, score: num(x.score),
         verdict: String(x.verdict), pinned: Boolean(x.pinned), createdAt: new Date(String(x.created_at)), flags: String(x.flags) ? String(x.flags).split(",") : [],
       })),
     };

@@ -15,13 +15,15 @@
     "lib": [
       "ES2022",
       "DOM"
-    ]
+    ],
+    "jsx": "react-jsx"
   },
   "include": [
     "packages/*/src",
     "packages/*/test",
     "corpus",
     "apps/*/src",
-    "apps/*/test"
+    "apps/*/test",
+    "apps/*/src/**/*.tsx"
   ]
 }

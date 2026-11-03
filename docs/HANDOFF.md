@@ -1,6 +1,6 @@
 # Handoff: project state for the next agent
 
-Last updated at commit `b7f4f8a` on branch `phase-4-orgs`. Read this first, then `plan.md` (the design and build plan, which is the spec).
+Last updated after the dashboard commit on branch `phase-4-orgs`. Read this first, then `plan.md` (the design and build plan, which is the spec).
 
 ## What this is
 
@@ -11,7 +11,7 @@ An AI-assisted anti-phishing system. Every incoming email is scored against weig
 | Branch | State |
 | --- | --- |
 | `main` | Phases 1, 2 and 3 merged and pushed. 233 tests at merge. CI green. |
-| `phase-4-orgs` | **Active.** Pushed, not merged. 355 tests pass, `tsc --noEmit` clean. |
+| `phase-4-orgs` | **Active.** Pushed, not merged. 373 tests pass, `tsc --noEmit` clean. |
 
 Do not merge `phase-4-orgs` into `main` without the user's explicit say-so. They approved the earlier merges individually. The user said "just get everything done and then we'll get it going and diagnose any issues": they intend to run it themselves and report problems.
 
@@ -28,11 +28,13 @@ Done and tested on `phase-4-orgs`:
 - Shared UI package `packages/ui` (banner model, connection logic, verdict client, DOM renderer with feedback buttons). The Firefox/Chrome extension and the Outlook add-in both use it.
 - Outlook add-in (`apps/outlook-addin`): task pane, icons generated at build, manifest generator.
 
+- Dashboard front-end `apps/dashboard` (React 18 + inline-SVG charts, esbuild to `apps/dashboard/dist`): overview panels with date range and CSV, email log with filters/pagination/release, org lists with bulk import, policy editor with lock checkboxes, managed-policy generator (Chrome/Edge + Firefox), audit tab; tabs hidden by role from `GET /v1/me`. Token in `sessionStorage`, taken from the `#token=` fragment and removed from the URL. Email-log rows now include `userId`.
+- `npm run build:ui` (dashboard + add-in), Dockerfile builds both, compose/.env.example/README cover Phase 4 variables.
+
 **NOT done (resume here):**
-1. **Dashboard front-end, `apps/dashboard`** (React + TypeScript + charts, built with esbuild, output to `apps/dashboard/dist`, served at `/admin/`). Only the API exists. Planned: panels for each `/v1/admin/stats/*` endpoint with date filter and CSV buttons; email log with verdict/flag/sender filters and pagination; audit tab (admin); policy editor (`PUT /v1/orgs/:id/policy`, including lock checkboxes and dotted locks such as `ai.monthlyBudgetUsd`); list management with bulk import (`GET/POST/DELETE /v1/lists`, `scope=org`); a managed-policy JSON generator (Chrome/Edge `chrome.storage.managed` keys `serverUrl`, `lockServerUrl`; Firefox `3rdparty` policies); role-based tab visibility via `GET /v1/me`. Auth: session token in `sessionStorage`, picked up from the `#token=` URL fragment after SSO, or pasted. Needs deps `react`, `react-dom`, a chart lib, `@types/react*`, `"jsx": "react-jsx"` in tsconfig, and a `build:ui` npm script (main.ts already tells users to run `npm run build:ui`).
-2. An independent review of the Phase 4 branch (see "Process" below), then fixes.
-3. Docs and Docker: README and `.env.example` lack Phase 4 variables; `deploy/Dockerfile` does not copy `packages/ui`, `apps/dashboard`, `apps/outlook-addin` or build them.
-4. A run-and-diagnose guide for the user.
+1. An independent review of the Phase 4 branch (see "Process"), then fixes.
+2. A run-and-diagnose guide for the user.
+3. Dashboard is only tested with a fake API and happy-dom, never in a real browser against a real server. The "Firefox extension id" in the generator is a placeholder (`anti-phishing@example.invalid`); check it against the extension manifest. The dashboard has no policy form, only a JSON editor plus lock checkboxes.
 
 ## Repo layout
 
@@ -41,7 +43,7 @@ apps/api            Fastify server: /v1 API, worker loop, CLI, OIDC, static host
 apps/extension      Firefox + Chrome (MV3) extension: Gmail banner, options page
 apps/outlook-addin  Outlook task pane + manifest generator
 apps/local          Phase 1 standalone runner (Gmail polling + localhost verdict server)
-apps/dashboard      (not created yet)
+apps/dashboard      Admin dashboard (React), built to dist, served at /admin/
 packages/shared     Types, flag catalog and weights, Settings, defaults
 packages/parser     mailparser wrapper, link extraction, trusted Authentication-Results
 packages/detectors  Rule engine (pure functions) and allow/block list check
@@ -115,6 +117,6 @@ Allowlist/blocklist match the spoofable From header (allowlist now needs DMARC p
 ## First things to do when resuming
 
 1. `git checkout phase-4-orgs && npm install && npm test && npm run typecheck`.
-2. Build `apps/dashboard` (see "NOT done"), add `build:ui` and Docker support, update README/.env.example.
+2. `npm run build:ui`, start the API, open /admin/ and click through.
 3. Run the independent review, fix, update this file.
 4. Ask the user before merging to `main`.

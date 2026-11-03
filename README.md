@@ -56,3 +56,12 @@ What the model sees: sender name and address, reply-to, subject, the body trunca
 Measure it: `npm run corpus:ab` runs `corpus/uncertain` through rules-only and rules + AI and reports the recall and false-positive change (needs a provider configured in the environment). `corpus/injection` holds prompt-injection emails used in the tests.
 
 > Agents and new contributors: read [docs/HANDOFF.md](docs/HANDOFF.md) first for the current project state, decisions and gotchas.
+
+## Phase 4: organizations, dashboard and Outlook
+
+Build the front-ends once (the Docker image does this for you): `npm run build:ui`. The API then serves the admin dashboard at `/admin/` and the Outlook task pane at `/addin/`.
+
+- **Dashboard** (`/admin/`): roles `viewer` (aggregate panels), `analyst` (+ email log), `admin` (+ per-user data, org lists and policy, managed-policy generator, audit log, release/re-quarantine). Sign in with SSO (`OIDC_*` + `PUBLIC_URL`; the user must already exist) or paste a session token from `npm run api:cli -- token`. Give someone a role with `npm run api:cli -- set-role`. Viewing the email log, per-user data and exports is written to the audit log. The log never shows subjects or bodies, because they are not stored.
+- **Outlook**: set `MICROSOFT_CLIENT_ID/SECRET` and `PUBLIC_URL`, link a mailbox (`api:cli link-mail`), then download `https://<your server>/addin/manifest.xml` from the dashboard's Deployment tab and sideload it or deploy it in the Microsoft 365 admin center.
+- **Optional lookups** are off by default because they send data out: `RDAP_LOOKUPS` (sender domains) and `SAFE_BROWSING_API_KEY` (link URLs).
+- Prometheus-style metrics at `/metrics` (loopback, or with `METRICS_TOKEN`).
