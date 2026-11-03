@@ -46,8 +46,10 @@ export function createLookups(o: LookupOptions = {}): Lookups {
       const hit = age.get(key);
       if (hit !== undefined) return hit;
       let days: number | null = null;
+      let answered = false; // only a real answer (including "no such registration") is worth remembering
       try {
         const res = await f(`https://rdap.org/domain/${key}`, { signal: AbortSignal.timeout(timeoutMs) });
+        answered = res.ok || res.status === 404;
         if (res.ok) {
           const j = (await res.json()) as { events?: { eventAction?: string; eventDate?: string }[] };
           const reg = j.events?.find((e) => e.eventAction === "registration")?.eventDate;
@@ -57,7 +59,7 @@ export function createLookups(o: LookupOptions = {}): Lookups {
       } catch (e) {
         o.log?.(`RDAP lookup failed for ${key}: ${(e as Error).message}`);
       }
-      age.set(key, days);
+      if (answered) age.set(key, days);
       return days;
     },
 
@@ -73,6 +75,7 @@ export function createLookups(o: LookupOptions = {}): Lookups {
       const hit = threat.get(clean);
       if (hit !== undefined) return hit;
       let bad = false;
+      let answered = false; // an error must not be remembered as "clean"
       try {
         const res = await f(`https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${encodeURIComponent(o.safeBrowsingKey)}`, {
           method: "POST",
@@ -86,6 +89,7 @@ export function createLookups(o: LookupOptions = {}): Lookups {
             },
           }),
         });
+        answered = res.ok;
         if (res.ok) {
           const j = (await res.json()) as { matches?: unknown[] };
           bad = Array.isArray(j.matches) && j.matches.length > 0;
@@ -93,7 +97,7 @@ export function createLookups(o: LookupOptions = {}): Lookups {
       } catch (e) {
         o.log?.(`Safe Browsing lookup failed: ${(e as Error).message}`);
       }
-      threat.set(clean, bad);
+      if (answered) threat.set(clean, bad);
       return bad;
     },
   };

@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { applyPatch, hasDangerousKey, OrgValuesSchema, SettingsOverridesSchema } from "@ap/settings";
 import { ListEntrySchema } from "@ap/shared";
@@ -113,10 +114,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.get("/metrics", async (req, reply) => {
     if (!deps.metrics) return fail(reply, "not_found", "Metrics are not enabled");
-    const host = (req.headers.host ?? "").replace(/:\d+$/, "").toLowerCase();
-    const loopback = host === "127.0.0.1" || host === "localhost" || host === "[::1]";
+    // The Host header is chosen by the caller, so it proves nothing. Trust the socket, and refuse anything that came through a proxy
+    // (a same-host reverse proxy makes every client look like loopback).
+    const peer = req.socket.remoteAddress ?? "";
+    const viaProxy = Boolean(req.headers["x-forwarded-for"] || req.headers["forwarded"] || req.headers["x-real-ip"]);
+    const loopback = !viaProxy && (peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1");
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
-    if (!loopback && !(deps.metricsToken && bearer === deps.metricsToken)) return fail(reply, "forbidden", "Metrics are only available locally or with the metrics token");
+    const tokenOk = Boolean(deps.metricsToken && bearer && bearer.length === deps.metricsToken.length && timingSafeEqual(Buffer.from(bearer), Buffer.from(deps.metricsToken)));
+    if (!loopback && !tokenOk) return fail(reply, "forbidden", "Metrics are only available locally or with the metrics token");
     return reply.header("content-type", "text/plain; version=0.0.4").send(deps.metrics.render());
   });
 

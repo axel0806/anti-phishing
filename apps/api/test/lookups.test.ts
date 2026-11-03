@@ -59,3 +59,22 @@ describe("threatIntel (Safe Browsing)", () => {
     expect(await createLookups({ safeBrowsingKey: "k", fetch: mk(() => new Error("down")) }).threatIntel("http://n.example/")).toBe(false);
   });
 });
+
+describe("transient failures are not remembered as answers", () => {
+  it("RDAP: a timeout is retried on the next scan, a genuine 404 is cached", async () => {
+    let n = 0;
+    const flaky = createLookups({ rdap: true, fetch: mk(() => (++n === 1 ? new Error("timeout") : { json: { events: [{ eventAction: "registration", eventDate: daysAgo(5) }] } })) });
+    expect(await flaky.domainAgeDays("new.example")).toBeNull();
+    expect(await flaky.domainAgeDays("new.example")).toBe(5);
+    const calls: Call[] = [];
+    const none = createLookups({ rdap: true, fetch: mk(() => ({ status: 404 }), calls) });
+    await none.domainAgeDays("gone.example"); await none.domainAgeDays("gone.example");
+    expect(calls).toHaveLength(1);
+  });
+  it("Safe Browsing: an error is not cached as clean", async () => {
+    let n = 0;
+    const l = createLookups({ safeBrowsingKey: "k", fetch: mk(() => (++n === 1 ? { status: 503 } : { json: { matches: [{ threatType: "SOCIAL_ENGINEERING" }] } })) });
+    expect(await l.threatIntel("https://bad.example/x")).toBe(false);
+    expect(await l.threatIntel("https://bad.example/x")).toBe(true);
+  });
+});

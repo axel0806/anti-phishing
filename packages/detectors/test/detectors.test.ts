@@ -10,6 +10,17 @@ const base = (o: Partial<ParsedEmail> = {}): ParsedEmail => ({
 const ctx: DetectorContext = { settings: DEFAULT_SETTINGS, lookups: { domainAgeDays: async () => null, threatIntel: async () => false } };
 const ids = async (e: ParsedEmail, c = ctx) => (await runDetectors(e, c)).map((f) => f.id).sort();
 
+describe("authentication when the provider gives no trusted results (Microsoft Graph)", () => {
+  const allMissing = { spf: "missing", dkim: "missing", dmarc: "missing" } as const;
+  it("raises no authentication flags when results are unavailable, not failed", async () => {
+    expect(await ids(base({ auth: allMissing }), { ...ctx, authTrusted: false })).toEqual([]);
+  });
+  it("still flags a real failure and still flags missing results where they are trusted (Gmail)", async () => {
+    expect(await ids(base({ auth: { spf: "fail", dkim: "fail", dmarc: "fail" } }), { ...ctx, authTrusted: false })).toEqual(["dkim_fail", "dmarc_fail", "spf_fail"]);
+    expect(await ids(base({ auth: allMissing }))).toEqual(["dkim_fail"]);
+  });
+});
+
 describe("detectors", () => {
   it("clean email fires nothing", async () => {
     expect(await ids(base())).toEqual([]);

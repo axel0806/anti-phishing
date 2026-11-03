@@ -42,6 +42,26 @@ beforeAll(async () => {
   await admin.rollupDay(day(40));
 });
 
+describe("rollup history survives the retention purge", () => {
+  it("a re-run for a day whose scans were purged keeps the settled numbers", async () => {
+    const org = (await store.createOrg("Purged")).id;
+    const u = (await store.createUser({ email: "p@purged.example", orgId: org })).id;
+    await store.saveScan(u, "p1", v("phishing", 90), { latencyMs: 1, sender: "a@b.example" });
+    await store.saveScan(u, "p2", v("safe", 0), { latencyMs: 1, sender: "c@d.example" });
+    await age(u, "p1", 2); await age(u, "p2", 2);
+    await admin.rollupDay(day(2));
+    await conn.db.execute(sql`delete from scans where user_id = ${u}`); // what the retention purge does
+    await admin.rollupDay(day(2));                                      // the worker's 4-day catch-up
+    const o = await admin.overview(org, range(3, -1));
+    expect(o.current.scanned).toBe(2);
+    expect(o.current.phishing).toBe(1);
+  });
+  it("concurrent rebuilds of the same day neither fail nor double count", async () => {
+    await Promise.all([admin.rollupDay(today()), admin.rollupDay(today()), admin.rollupDay(today())]);
+    expect((await admin.overview(orgId, range(0, -1))).current.scanned).toBe(3);
+  });
+});
+
 describe("rollup", () => {
   it("is idempotent: running a day twice does not double the numbers", async () => {
     await admin.rollupDay(today());

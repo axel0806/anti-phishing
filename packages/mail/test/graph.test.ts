@@ -20,6 +20,20 @@ function fake(handler: Handler) {
 const G = "https://graph.microsoft.com/v1.0";
 const provider = (h: Handler) => { const x = fake(h); return { p: new GraphProvider(async () => "tok", x.f), calls: x.calls }; };
 
+describe("GraphProvider safety", () => {
+  it("never sends the bearer token to a page link outside Microsoft Graph", async () => {
+    const { p, calls } = provider((c) => (c.url.includes("evil") ? { json: {} } : { json: { value: [{ id: "a" }], "@odata.nextLink": "https://evil.example/steal" } }));
+    await expect(p.listRecentInbox(50)).rejects.toThrow(/outside Microsoft Graph/);
+    expect(calls.some((c) => c.url.includes("evil"))).toBe(false);
+  });
+
+  it("reads the MIME source as bytes, so 8-bit content is not corrupted", async () => {
+    const bytes = Buffer.from([0x53, 0x3a, 0x20, 0xe9, 0xff, 0x0d, 0x0a]);
+    const f: FetchLike = async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => bytes.toString("utf8"), arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) as ArrayBuffer });
+    expect((await new GraphProvider(async () => "t", f).fetchRaw("x")).equals(bytes)).toBe(true);
+  });
+});
+
 describe("GraphProvider", () => {
   it("asks for immutable ids on every request, so a moved message keeps its id", async () => {
     const { p, calls } = provider(() => ({ json: { value: [] } }));

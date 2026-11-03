@@ -1,5 +1,5 @@
 import { bannerModel, fetchVerdict, renderBanner, sendFeedback } from "@ap/ui";
-import { clearToken, connectionFromStorage, restIdFor, saveToken } from "./helpers.ts";
+import { clearToken, connectionFromStorage, latestOnly, restIdFor, saveToken } from "./helpers.ts";
 
 // Office.js is loaded from Microsoft's CDN by taskpane.html and only exists inside Outlook.
 declare const Office: any;
@@ -45,7 +45,10 @@ function signOutLink(): HTMLElement {
   return a;
 }
 
+const newest = latestOnly();
+
 async function refresh(): Promise<void> {
+  const current = newest();
   const c = conn();
   if (!c.token) return show(signInForm());
   const item = Office.context.mailbox.item;
@@ -54,6 +57,7 @@ async function refresh(): Promise<void> {
 
   show(text("p", "Checking this message..."));
   const dto = await fetchVerdict(restId, c, fetch, ID_FORMAT);
+  if (!current()) return; // the user moved to another message while this one was loading
   if (!dto) return show(text("p", "No result yet. If this keeps happening, your session may have expired."), signOutLink());
   const model = bannerModel(dto);
   if (!model) return show(text("p", "No signs of phishing found in this message.", "color:#1a7f37;font-weight:600"), signOutLink());

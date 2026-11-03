@@ -29,6 +29,14 @@ export class AdminQueries {
   /** Rebuilds one UTC day of per-org, per-user counts from `scans`. Idempotent; run for yesterday and today, before retention purges old scans. */
   async rollupDay(day: string): Promise<void> {
     await this.db.transaction(async (tx) => {
+      // Concurrent rebuilds of one day (several dashboard requests at once) queue here instead of colliding on the primary key.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"rollup:" + day}))`);
+      // Scans are purged after the retention period. A day must never be replaced by a smaller picture of itself,
+      // or the history the rollup exists to keep would be wiped by the next catch-up run.
+      const read = async (q: SQL) => num((((await tx.execute(q)) as unknown as { rows: Row[] }).rows[0] ?? {}).n);
+      const settled = await read(sql`select coalesce(sum(scanned), 0) as n from daily_stats where date = ${day}::date`);
+      const live = await read(sql`select count(*) as n from scans s join users u on u.id = s.user_id where u.org_id is not null and (s.created_at at time zone 'UTC')::date = ${day}::date`);
+      if (live < settled) return;
       await tx.execute(sql`delete from daily_stats where date = ${day}::date`);
       await tx.execute(sql`
         insert into daily_stats (org_id, date, user_id, scanned, safe, suspicious, phishing, false_positives, ai_calls)

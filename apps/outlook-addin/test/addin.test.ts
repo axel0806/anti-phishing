@@ -79,3 +79,16 @@ describe("solidPng", () => {
     expect(Array.from(raw.subarray(1, 5))).toEqual([10, 120, 200, 255]);
   });
 });
+
+describe("latest-wins guard for a pane that outlives message clicks", () => {
+  it("only the most recent request may render", async () => {
+    const { latestOnly } = await import("../src/helpers.ts");
+    const next = latestOnly();
+    const a = next(), b = next();
+    expect(a()).toBe(false); // message A's slow reply arrives after the user moved to B
+    expect(b()).toBe(true);
+    const c = next();
+    expect(b()).toBe(false);
+    expect(c()).toBe(true);
+  });
+});

@@ -11,7 +11,7 @@ An AI-assisted anti-phishing system. Every incoming email is scored against weig
 | Branch | State |
 | --- | --- |
 | `main` | Phases 1, 2 and 3 merged and pushed. 233 tests at merge. CI green. |
-| `phase-4-orgs` | **Active.** Pushed, not merged. 373 tests pass, `tsc --noEmit` clean. |
+| `phase-4-orgs` | **Active.** Pushed, not merged. 384 tests pass, `tsc --noEmit` clean. |
 
 Do not merge `phase-4-orgs` into `main` without the user's explicit say-so. They approved the earlier merges individually. The user said "just get everything done and then we'll get it going and diagnose any issues": they intend to run it themselves and report problems.
 
@@ -32,7 +32,7 @@ Done and tested on `phase-4-orgs`:
 - `npm run build:ui` (dashboard + add-in), Dockerfile builds both, compose/.env.example/README cover Phase 4 variables.
 
 **NOT done (resume here):**
-1. An independent review of the Phase 4 branch (see "Process"), then fixes.
+1. (Done: independent review and fixes, see below.)
 2. (Done: docs/RUNNING.md.)
 3. Dashboard is only tested with a fake API and happy-dom, never in a real browser against a real server. The generator defaults the Firefox extension id to the dev id `anti-phishing-dev@local`; change it for a signed release. The dashboard has no policy form, only a JSON editor plus lock checkboxes.
 
@@ -109,6 +109,12 @@ Per phase: build test-first on a branch, commit, push, then dispatch an independ
 - Background servers started from the shell can outlive the command and hold ports (a stale API on 18080 once caused phantom 401s). Check `Get-NetTCPConnection -LocalPort` before blaming the code.
 - PGlite needs its data directory's parent to exist (`connect()` creates it) and runs one statement per call (migrations are split on `;`).
 - Zod is v4 (`z.partialRecord`, `z.strictObject`). Fastify is v5. `jose` v6.
+
+## Phase 4 independent review (done, Sonnet 5.5 reviewer)
+
+No Critical findings; authz, org isolation, SQL parameterisation, OIDC, CSP and XSS held up. Fixed with tests that failed first: Graph mail got a spurious `dkim_fail` (now `authTrusted: false` for outlook users when no results exist); `rollupDay` race (advisory lock) and history wipe when scans are purged (never replace a day with fewer scans); on-demand rollup throttled to once per 30 s; email-log CSV was cut at 500 rows (now paged server-side to 50,000, header `x-export-truncated` if still short); `/metrics` trusted the Host header (now socket address, refuses proxied requests, constant-time token compare); Outlook pane showed stale banners (`latestOnly` guard); Graph requests refuse non-Graph URLs and MIME is read as bytes; lookup failures no longer cached as answers; OIDC fetch timeouts; rescan capped at 100 per call (`remaining` in the reply).
+
+Deferred from that review: admin release/re-quarantine is stored as the target user's own feedback, so it counts in their false-positive stats and weight suggestions (audit log does record the actor); Safe Browsing receives the URL path; no cap on links looked up per email; `PUBLIC_URL` validated only when OIDC is set; the dashboard CSV button does not yet tell the user about `x-export-truncated`; the add-in race, the Postgres advisory lock and the dashboard-in-a-browser path are not covered by real-service tests.
 
 ## Deferred minors (not fixed on purpose)
 

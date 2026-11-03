@@ -92,6 +92,20 @@ describe("data and isolation", () => {
   });
 });
 
+describe("csv export of the email log", () => {
+  it("is not silently cut at the 500-row page size", async () => {
+    const big = await store.createOrg("Big");
+    const a = await store.createUser({ email: "analyst@big.example", orgId: big.id, role: "analyst" });
+    const m = await store.createUser({ email: "m@big.example", orgId: big.id });
+    for (let i = 0; i < 510; i++) await store.saveScan(m.id, `big${i}`, v("safe", 0), { latencyMs: 1, sender: `s${i}@ok.example` });
+    const r = await get(a, "/v1/admin/scans?limit=100000&format=csv");
+    expect(r.statusCode).toBe(200);
+    expect(r.body.trim().split("\n").length).toBe(511); // header + 510
+    expect(r.headers["x-export-truncated"]).toBeUndefined();
+    expect((await get(a, "/v1/admin/scans?limit=100000")).json().rows.length).toBe(500); // JSON stays paged
+  });
+});
+
 describe("csv export", () => {
   it("returns text/csv for any panel when asked", async () => {
     const r = await get(viewer, "/v1/admin/stats/flags?format=csv");
@@ -177,7 +191,14 @@ describe("metrics", () => {
     expect(ok.body).toContain('scans_total{verdict="phishing"} 1');
     expect(ok.body).toMatch(/scan_latency_ms_bucket\{le="50"\} 1/);
     expect(ok.body).toContain("scan_latency_ms_count 1");
-    expect((await app.inject({ method: "GET", url: "/metrics", headers: { host: "api.acme.example" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/metrics", headers: { host: "api.acme.example" }, remoteAddress: "198.51.100.7" })).statusCode).toBe(403);
+  });
+  it("cannot be unlocked by a spoofed Host header from a remote address, or through a local proxy", async () => {
+    const remote = await app.inject({ method: "GET", url: "/metrics", headers: { host: "localhost" }, remoteAddress: "203.0.113.5" });
+    expect(remote.statusCode).toBe(403);
+    const proxied = await app.inject({ method: "GET", url: "/metrics", headers: { host: "localhost", "x-forwarded-for": "203.0.113.5" }, remoteAddress: "127.0.0.1" });
+    expect(proxied.statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/metrics", remoteAddress: "127.0.0.1" })).statusCode).toBe(200);
   });
   it("histogram buckets are cumulative", () => {
     const m = new Metrics();

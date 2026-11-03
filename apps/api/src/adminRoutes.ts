@@ -13,6 +13,8 @@ const SAFE_ID = /^[A-Za-z0-9_-]{1,200}$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MS_DAY = 86_400_000;
 const MAX_SPAN_DAYS = 366;
+const PAGE_CAP = 500;           // matches the cap inside AdminQueries.scanLog
+const MAX_EXPORT_ROWS = 50_000; // an export larger than this reports itself as truncated
 
 const Verdict = z.enum(["safe", "suspicious", "phishing"]);
 const LogQuery = z.object({
@@ -62,10 +64,17 @@ export function registerAdminRoutes(priv: FastifyInstance, deps: Deps): void {
   };
 
   // Keep today's and yesterday's rollup fresh on demand; older days are settled by the nightly job.
+  // Concurrent panel requests share one rebuild, and a fresh one is skipped for 30 s, so viewers cannot load the database by reloading.
+  let inflight: Promise<void> | null = null;
+  let lastRefresh = 0;
   const refresh = async () => {
+    if (inflight) return inflight;
+    if (Date.now() - lastRefresh < 30_000) return;
     const d = (n: number) => new Date(Date.now() - n * MS_DAY).toISOString().slice(0, 10);
-    await admin.rollupDay(d(1));
-    await admin.rollupDay(d(0));
+    inflight = (async () => {
+      try { await admin.rollupDay(d(1)); await admin.rollupDay(d(0)); lastRefresh = Date.now(); } finally { inflight = null; }
+    })();
+    return inflight;
   };
 
   withRange("overview", "viewer", async (u, r) => {
@@ -111,10 +120,19 @@ export function registerAdminRoutes(priv: FastifyInstance, deps: Deps): void {
     if (!q.success) return fail(reply, "validation", q.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
     const u = req.user!;
     const { limit, offset, ...filters } = q.data;
-    const out = await admin.scanLog(u.orgId!, range, filters, { limit, offset });
+    const isCsv = (req.query as { format?: string }).format === "csv";
+    // The JSON view is paged at 500 rows. An export is read in pages server-side up to MAX_EXPORT_ROWS, and says so if it still falls short.
+    const want = isCsv ? Math.min(limit, MAX_EXPORT_ROWS) : limit;
+    let out = await admin.scanLog(u.orgId!, range, filters, { limit: Math.min(want, PAGE_CAP), offset });
+    while (isCsv && out.rows.length < want && offset + out.rows.length < out.total) {
+      const next = await admin.scanLog(u.orgId!, range, filters, { limit: Math.min(want - out.rows.length, PAGE_CAP), offset: offset + out.rows.length });
+      if (!next.rows.length) break;
+      out = { total: next.total, rows: [...out.rows, ...next.rows] };
+    }
     const described = Object.entries(filters).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(" ");
     await admin.audit(u.orgId!, u.id, "email_log.view", described || "all");
     const rows = out.rows.map((x) => ({ ...x, createdAt: x.createdAt.toISOString() }));
+    if (isCsv && offset + rows.length < out.total) reply.header("x-export-truncated", `${rows.length} of ${out.total}`);
     return csvOrJson(req, reply, "scans", { rows, total: out.total }, rows, ["messageId", "userEmail", "sender", "score", "verdict", "pinned", "createdAt", "flags"]);
   });
 

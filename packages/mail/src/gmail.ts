@@ -13,7 +13,7 @@ export interface MailProvider {
 }
 
 export type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) =>
-  Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string> }>;
+  Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer> }>;
 
 const BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 

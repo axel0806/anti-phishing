@@ -33,6 +33,8 @@ export interface ScanOutcome { scan: StoredScan; action: ReturnType<typeof actio
 /** Stable positive int derived from the effective settings, stored with each scan so old verdicts stay explainable. */
 const versionOf = (s: Settings): number => createHash("sha256").update(JSON.stringify(s)).digest().readUInt32BE(0) & 0x7fffffff;
 
+const RESCAN_BATCH = 100;
+
 export class ScanService {
   private busy = new Set<string>();
   constructor(private deps: ScanServiceDeps) {}
@@ -104,11 +106,13 @@ export class ScanService {
   }
 
   /** Re-scores the user's recent scans after a settings change. Pinned (manually judged) scans are left alone. */
-  async rescanRecent(user: User, days: number): Promise<{ rescanned: number; skippedPinned: number; failed: number }> {
+  /** Newest first, at most RESCAN_BATCH per call so one request cannot tie up the server or the AI provider; `remaining` says to call again. */
+  async rescanRecent(user: User, days: number): Promise<{ rescanned: number; skippedPinned: number; failed: number; remaining?: number }> {
     const all = await this.deps.store.recentScanIds(user.id, days);
-    const open = new Set(await this.deps.store.recentScanIds(user.id, days, { excludePinned: true }));
-    const out = { rescanned: 0, skippedPinned: all.length - open.size, failed: 0 };
-    for (const id of open) {
+    const open = [...new Set(await this.deps.store.recentScanIds(user.id, days, { excludePinned: true }))];
+    const out: { rescanned: number; skippedPinned: number; failed: number; remaining?: number } = { rescanned: 0, skippedPinned: all.length - open.length, failed: 0 };
+    if (open.length > RESCAN_BATCH) out.remaining = open.length - RESCAN_BATCH;
+    for (const id of open.slice(0, RESCAN_BATCH)) {
       try { await this.scan(user, id, { rescan: true, mode: "dry_run" }); out.rescanned++; } catch { out.failed++; }
     }
     return out;
@@ -152,7 +156,7 @@ export class ScanService {
       const email = await parseEmail(await mail.fetchRaw(messageId), messageId);
       const history = await this.deps.store.getSenderHistory(user.id, email.from.address);
       const historySize = await this.deps.store.countSenders(user.id);
-      const verdict = await scanParsed(email, eff.settings, { lookups: this.deps.lookups ?? offlineLookups, senderHistory: history, historySize, ai: this.aiStageFor(user, eff.settings) });
+      const verdict = await scanParsed(email, eff.settings, { lookups: this.deps.lookups ?? offlineLookups, senderHistory: history, historySize, authTrusted: user.provider !== "outlook", ai: this.aiStageFor(user, eff.settings) });
       verdict.settingsVersion = eff.version;
 
       const scan = await this.deps.store.saveScan(user.id, messageId, verdict, {

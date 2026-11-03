@@ -15,6 +15,8 @@ export class GraphProvider implements MailProvider {
   constructor(private getAccessToken: () => Promise<string>, private fetchImpl: FetchLike = fetch as unknown as FetchLike, private base = BASE) {}
 
   private async raw(url: string, init: { method?: string; body?: unknown } = {}) {
+    // Every request carries the bearer token, including ones whose URL came out of a previous response (paging links).
+    if (!url.startsWith(this.base + "/")) throw new Error("Refusing a request outside Microsoft Graph");
     const res = await this.fetchImpl(url, {
       method: init.method ?? "GET",
       headers: { Authorization: "Bearer " + (await this.getAccessToken()), "Content-Type": "application/json", Prefer: 'IdType="ImmutableId"' },
@@ -29,7 +31,8 @@ export class GraphProvider implements MailProvider {
 
   async fetchRaw(messageId: string): Promise<Buffer> {
     const res = await this.raw(`${this.base}/me/messages/${enc(messageId)}/$value`);
-    return Buffer.from(await res.text(), "utf8");
+    // Bytes, not text: decoding as UTF-8 first would replace 8-bit or non-UTF-8 parts with U+FFFD before the parser sees them.
+    return res.arrayBuffer ? Buffer.from(await res.arrayBuffer()) : Buffer.from(await res.text(), "utf8");
   }
 
   async ensureFolder(name: string): Promise<string> {

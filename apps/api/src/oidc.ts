@@ -37,7 +37,7 @@ export class Oidc {
 
   private discovery(): Promise<Discovery> {
     this.disc ??= (async () => {
-      const res = await this.f(this.cfg.issuer.replace(/\/+$/, "") + "/.well-known/openid-configuration");
+      const res = await this.f(this.cfg.issuer.replace(/\/+$/, "") + "/.well-known/openid-configuration", { signal: AbortSignal.timeout(5000) });
       if (!res.ok) throw new OidcError(`Discovery failed (${res.status})`);
       const d = (await res.json()) as Discovery;
       if (d.issuer !== this.cfg.issuer) throw new OidcError("Issuer in discovery document does not match configuration");
@@ -81,6 +81,7 @@ export class Oidc {
     const d = await this.discovery();
     const res = await this.f(d.token_endpoint, {
       method: "POST",
+      signal: AbortSignal.timeout(5000), // a hanging identity provider must not hang the login request
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "authorization_code", code: query.code, redirect_uri: this.cfg.redirectUri,

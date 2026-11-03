@@ -9,6 +9,8 @@ export interface DetectorContext {
   senderHistory?: SenderHistory;
   /** How many distinct senders the user has history for. `first_time_sender` stays off until this reaches 50. */
   historySize?: number;
+  /** False when the mail provider supplies no trusted Authentication-Results (Microsoft Graph): "missing" then means unknown, not failed. Default true. */
+  authTrusted?: boolean;
   lookups: { domainAgeDays(d: string): Promise<number | null>; threatIntel(url: string): Promise<boolean> };
 }
 export type Detector = (email: ParsedEmail, ctx: DetectorContext) => Flag[] | Promise<Flag[]>;
@@ -45,6 +47,8 @@ const domainOf = (addr: string) => addr.split("@").pop()!.toLowerCase();
 
 const authentication: Detector = (e, ctx) => {
   const bad = (r: string) => r === "fail" || r === "softfail";
+  const noResults = e.auth.spf === "missing" && e.auth.dkim === "missing" && e.auth.dmarc === "missing";
+  if (ctx.authTrusted === false && noResults) return [];
   return compact([
     bad(e.auth.spf) ? fl(ctx, "spf_fail", `SPF ${e.auth.spf}`) : null,
     e.auth.dkim !== "pass" ? fl(ctx, "dkim_fail", `DKIM ${e.auth.dkim}`) : null,

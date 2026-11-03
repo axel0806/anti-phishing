@@ -21,3 +21,13 @@ export function restIdFor(itemId: string | undefined, convert: (id: string, vers
   if (!itemId) return null;
   try { return convert(itemId, version); } catch { return null; }
 }
+
+/**
+ * The task pane stays open while the user clicks through messages, and replies can arrive out of order.
+ * Call `next()` at the start of each refresh; the function it returns says whether that refresh is still the newest.
+ * A stale reply must not render, or its feedback buttons would act on a message the user is no longer looking at.
+ */
+export function latestOnly(): () => () => boolean {
+  let n = 0;
+  return () => { const mine = ++n; return () => mine === n; };
+}
