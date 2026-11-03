@@ -22,7 +22,7 @@ const admin = new AdminQueries(conn.db);
 const metrics = new Metrics();
 const mailFor = cfg.google || cfg.microsoft
   ? mailProviderFactory({
-      google: cfg.google, microsoft: cfg.microsoft, tokenKey: cfg.tokenKey,
+      google: cfg.google, microsoft: cfg.microsoft, tokenKey: cfg.tokenKey, previousTokenKeys: cfg.previousTokenKeys,
       persist: (userId, blob) => store.setEncryptedTokens(userId, blob).catch((e) => console.error("could not save refreshed token:", (e as Error).message)),
       // A revoked link would otherwise fail on every pass forever: unlink it so the user can reconnect.
       onRevoked: (userId) => { console.error(`mailbox access was revoked for user ${userId}; unlinking`); void store.setEncryptedTokens(userId, null); },

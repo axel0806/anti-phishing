@@ -2,6 +2,7 @@ import { exec } from "node:child_process";
 import { connect, Store } from "@ap/db";
 import { MICROSOFT_SCOPE, microsoftEndpoints, signIn, type OAuthConfig } from "@ap/mail";
 import { encryptSecret, signToken } from "./auth.ts";
+import { rotateTokenKeys } from "./keys.ts";
 import { loadConfig } from "./config.ts";
 import { loadDotEnv } from "./env.ts";
 
@@ -14,6 +15,7 @@ const usage = [
   "  link-mail <email>               authorize the user's mailbox (Gmail or Outlook, per their provider)",
   "  link-gmail <email>              same as link-mail (kept for compatibility)",
   "  set-role <email> <role>         change a user's role: user | viewer | analyst | admin",
+  "  rotate-keys all                 re-encrypt stored mailbox tokens under TOKEN_KEY (set TOKEN_KEY_PREVIOUS to the old key first)",
 ].join("\n");
 if (!cmd || !email) {
   console.log(usage);
@@ -56,6 +58,10 @@ try {
     });
     await store.setEncryptedTokens(u.id, encryptSecret(cfg.tokenKey, JSON.stringify({ refresh_token: tokens.refresh_token })));
     console.log(`${u.provider} mailbox linked for ${u.email}`);
+  } else if (cmd === "rotate-keys") {
+    const r = await rotateTokenKeys(store, cfg.tokenKey, cfg.previousTokenKeys);
+    console.log(`rotated ${r.rotated}, already on the current key ${r.alreadyCurrent}${r.unreadable.length ? `, UNREADABLE (left untouched, these users must reconnect): ${r.unreadable.join(", ")}` : ""}`);
+    if (r.unreadable.length) process.exitCode = 1;
   } else if (cmd === "set-role") {
     const role = flags[0];
     if (role !== "user" && role !== "viewer" && role !== "analyst" && role !== "admin") throw new Error("role must be user, viewer, analyst or admin");

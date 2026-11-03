@@ -38,6 +38,8 @@ export interface Config {
   setupToken: string | undefined;
   /** Believe X-Forwarded-For for the client address (rate limits). Only behind a reverse proxy you control. */
   trustProxy: boolean;
+  /** Keys that may still decrypt stored tokens during a TOKEN_KEY rotation. */
+  previousTokenKeys: string[];
   retentionDays: number;
   /** The https address users reach this server at; enables the Outlook add-in manifest and SSO redirects. */
   publicUrl: string | undefined;
@@ -69,6 +71,7 @@ export function loadConfig(env: Env): Config {
   if (secret.length < 32) problems.push("SERVER_SECRET must be at least 32 characters");
   const tokenKey = env.TOKEN_KEY ?? "";
   if (!/^[0-9a-fA-F]{64}$/.test(tokenKey)) problems.push("TOKEN_KEY must be 64 hex characters (32 bytes)");
+  if (env.TOKEN_KEY_PREVIOUS && !/^[0-9a-fA-F]{64}$/.test(env.TOKEN_KEY_PREVIOUS)) problems.push("TOKEN_KEY_PREVIOUS must be 64 hex characters (32 bytes)");
   const port = env.PORT === undefined ? 8080 : Number(env.PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65535) problems.push("PORT must be 1-65535");
   const role = (env.ROLE ?? "all") as Config["role"];
@@ -143,5 +146,6 @@ export function loadConfig(env: Env): Config {
     metricsToken: env.METRICS_TOKEN || undefined,
     setupToken: env.SETUP_TOKEN || undefined,
     trustProxy: env.TRUST_PROXY === "true",
+    previousTokenKeys: env.TOKEN_KEY_PREVIOUS ? [env.TOKEN_KEY_PREVIOUS] : [],
   };
 }

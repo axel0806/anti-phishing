@@ -3,12 +3,15 @@ import {
   type FetchLike, type MailProvider, type OAuthConfig, type Tokens,
 } from "@ap/mail";
 import type { User } from "@ap/db";
-import { decryptSecret, encryptSecret } from "./auth.ts";
+import { encryptSecret } from "./auth.ts";
+import { decryptSecretAny } from "./keys.ts";
 
 export interface MailerConfig {
   google?: { clientId: string; clientSecret: string } | null;
   microsoft?: { clientId: string; clientSecret?: string; tenant?: string } | null;
   tokenKey: string;
+  /** Old keys still accepted for reading while tokens are being re-encrypted (TOKEN_KEY_PREVIOUS). New writes always use `tokenKey`. */
+  previousTokenKeys?: string[];
   /** Called with the new ENCRYPTED token blob when the provider rotates a refresh token (Microsoft does on every refresh). */
   persist?: (userId: string, encryptedTokens: string) => void | Promise<void>;
   /** Called when the provider says the user's grant is gone (revoked, expired). The caller should unlink the mailbox. */
@@ -31,7 +34,7 @@ export function mailProviderFactory(cfg: MailerConfig) {
     } else return null;
 
     let tokens: Tokens;
-    try { tokens = JSON.parse(decryptSecret(cfg.tokenKey, user.encryptedTokens)) as Tokens; } catch { return null; }
+    try { tokens = JSON.parse(decryptSecretAny([cfg.tokenKey, ...(cfg.previousTokenKeys ?? [])], user.encryptedTokens)) as Tokens; } catch { return null; }
     let current = tokens.refresh_token;
     const save = (t: Tokens) => {
       if (t.refresh_token === current) return; // access tokens are short-lived and not stored; only a changed refresh token is worth a write
