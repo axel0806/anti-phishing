@@ -36,6 +36,8 @@ export interface Config {
   metricsToken: string | undefined;
   /** Unlocks /setup on a server with no users. Undefined = generate one at startup and print it. */
   setupToken: string | undefined;
+  /** Believe X-Forwarded-For for the client address (rate limits). Only behind a reverse proxy you control. */
+  trustProxy: boolean;
   retentionDays: number;
   /** The https address users reach this server at; enables the Outlook add-in manifest and SSO redirects. */
   publicUrl: string | undefined;
@@ -140,5 +142,6 @@ export function loadConfig(env: Env): Config {
     dataDir: env.DATA_DIR ?? ".data",
     metricsToken: env.METRICS_TOKEN || undefined,
     setupToken: env.SETUP_TOKEN || undefined,
+    trustProxy: env.TRUST_PROXY === "true",
   };
 }

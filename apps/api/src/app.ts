@@ -10,6 +10,7 @@ import { Oidc, OidcError } from "./oidc.ts";
 import { fail } from "./errors.ts";
 import { registerSites, type Sites } from "./sites.ts";
 import { registerOnboarding } from "./onboarding.ts";
+import { RateLimiter } from "./rateLimit.ts";
 import type { ConnectFlow } from "./connect.ts";
 import { renderManifest } from "../../outlook-addin/src/manifest.ts";
 import type { Metrics } from "./metrics.ts";
@@ -39,6 +40,10 @@ export interface AppDeps {
   tokenKey?: string;
   /** One-time token that unlocks /setup on a server with no users. */
   setupToken?: string;
+  /** Trust X-Forwarded-For for the client address. Only set this behind a reverse proxy you control; otherwise callers could dodge rate limits by spoofing it. */
+  trustProxy?: boolean;
+  /** Requests per minute. Defaults: 60 per address on public pages, 600 per user on the API, 12 rescans per user. */
+  rateLimits?: { publicPerMin?: number; userPerMin?: number; rescanPerMin?: number };
 }
 
 declare module "fastify" {
@@ -59,7 +64,24 @@ const REST_ID = /^[A-Za-z0-9_=+/-]{1,500}$/;
 
 export function buildApp(deps: AppDeps): FastifyInstance {
   const { store, service, serverId, secret, admin } = deps;
-  const app = Fastify({ logger: false, bodyLimit: 64 * 1024, routerOptions: { maxParamLength: 1000 } }); // signed invite links in the URL path are longer than the default 100
+  const app = Fastify({ logger: false, bodyLimit: 64 * 1024, routerOptions: { maxParamLength: 1000 }, trustProxy: deps.trustProxy ?? false }); // signed invite links in the URL path are longer than the default 100
+  // ---- rate limits: stop one address or user hammering the server. The health check is exempt so monitors never get blocked. ----
+  const rl = deps.rateLimits ?? {};
+  const publicLimit = new RateLimiter(60_000, rl.publicPerMin ?? 60);
+  const userLimit = new RateLimiter(60_000, rl.userPerMin ?? 600);
+  const rescanLimit = new RateLimiter(60_000, rl.rescanPerMin ?? 12);
+  const sweeper = setInterval(() => { publicLimit.sweep(); userLimit.sweep(); rescanLimit.sweep(); }, 60_000);
+  sweeper.unref();
+  app.addHook("onClose", async () => clearInterval(sweeper));
+  const tooMany = (reply: FastifyReply, retryAfterSec: number) =>
+    reply.header("retry-after", String(retryAfterSec)).code(429).send({ error: { code: "rate_limited", message: "Too many requests. Try again shortly." } });
+  const PUBLIC_PATHS = /^\/(setup|join|connect|admin\/login|admin\/callback)(\/|\?|$)/;
+  app.addHook("onRequest", async (req, reply) => {
+    if (!PUBLIC_PATHS.test(req.url)) return;
+    const r = publicLimit.take(req.ip);
+    if (!r.ok) return tooMany(reply, r.retryAfterSec);
+  });
+
   // RFC 7386 merge patches arrive as application/merge-patch+json; treat them as JSON.
   app.addContentTypeParser("application/merge-patch+json", { parseAs: "string" }, (_req, body, done) => {
     try {
@@ -143,6 +165,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const user = claims ? await store.getUser(claims.uid) : null;
       if (!user) return fail(reply, "unauthorized", "Missing or invalid session token");
       req.user = user;
+      const r = userLimit.take(user.id);
+      if (!r.ok) return tooMany(reply, r.retryAfterSec);
+      if (req.url.startsWith("/v1/rescan")) { const x = rescanLimit.take(user.id); if (!x.ok) return tooMany(reply, x.retryAfterSec); }
     });
 
     if (admin) registerAdminRoutes(priv, { store, admin, service, secret, publicUrl: deps.publicUrl });

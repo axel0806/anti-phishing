@@ -32,6 +32,7 @@ x-app: &app
     # Optional Phase 4 features; all off unless set.
     PUBLIC_URL: ${PUBLIC_URL:-}
     SETUP_TOKEN: ${SETUP_TOKEN:-}
+    TRUST_PROXY: ${TRUST_PROXY:-}
     MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
     MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
     MICROSOFT_TENANT: ${MICROSOFT_TENANT:-common}
@@ -73,5 +74,21 @@ services:
       <<: *env
       ROLE: worker
 
+  # Optional HTTPS in front of the API: docker compose ... --profile tls up -d  (set DOMAIN, PUBLIC_URL and TRUST_PROXY=true)
+  caddy:
+    image: caddy:2-alpine
+    profiles: [tls]
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}  # set a real domain to use the tls profile
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
 volumes:
   pgdata:
+  caddy_data:

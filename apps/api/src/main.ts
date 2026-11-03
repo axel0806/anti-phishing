@@ -48,7 +48,7 @@ const connectFlow = cfg.publicUrl && (cfg.google || cfg.microsoft) ? new Connect
 const setupToken = cfg.setupToken ?? randomBytes(18).toString("base64url");
 
 if (cfg.role !== "worker") {
-  const app = buildApp({ store, service, admin, metrics, sites: builtSites(), publicUrl: cfg.publicUrl, connect: connectFlow, tokenKey: cfg.tokenKey, setupToken, oidc: cfg.oidc ? new Oidc({ ...cfg.oidc, secret: cfg.secret }) : undefined, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
+  const app = buildApp({ store, service, admin, metrics, sites: builtSites(), publicUrl: cfg.publicUrl, connect: connectFlow, tokenKey: cfg.tokenKey, setupToken, trustProxy: cfg.trustProxy, oidc: cfg.oidc ? new Oidc({ ...cfg.oidc, secret: cfg.secret }) : undefined, metricsToken: cfg.metricsToken, serverId: cfg.serverId, secret: cfg.secret });
   await app.listen({ port: cfg.port, host: "0.0.0.0" });
   console.log(`API listening on :${cfg.port} (server id ${cfg.serverId})`);
   if (await store.countUsers() === 0) {

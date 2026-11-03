@@ -1,0 +1,7 @@
+# TLS in front of the API. Caddy obtains and renews a certificate for DOMAIN automatically (ports 80 and 443 must reach this machine).
+#   DOMAIN=phish.example.com PUBLIC_URL=https://phish.example.com TRUST_PROXY=true \
+#     docker compose -f deploy/docker-compose.yml --env-file .env --profile tls up -d --build
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:8080
+}
