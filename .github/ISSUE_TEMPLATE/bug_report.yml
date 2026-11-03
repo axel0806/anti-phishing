@@ -1,0 +1,27 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Commands, settings (without secrets), and the page or endpoint involved.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version, Node version, OS
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Remove tokens, secrets and email addresses first.
+      render: shell

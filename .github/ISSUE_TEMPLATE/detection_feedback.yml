@@ -1,0 +1,29 @@
+name: Detection feedback (missed phish or false alarm)
+description: A phishing email got through, or a legitimate email was flagged
+labels: [detection]
+body:
+  - type: markdown
+    attributes:
+      value: "Please **do not paste email content or real addresses**. Describe it and list the flags the banner showed. If you can, send a sanitised `.eml` as a pull request for `corpus/`."
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong?
+      options:
+        - Missed phishing (false negative)
+        - Legitimate email flagged (false positive)
+    validations:
+      required: true
+  - type: textarea
+    id: flags
+    attributes:
+      label: Flags and score shown (or "none")
+    validations:
+      required: true
+  - type: textarea
+    id: describe
+    attributes:
+      label: What kind of email was it?
+      description: Who it pretended to be (or really was), what it asked for, and what trick it used, with no real names or addresses.
+    validations:
+      required: true
