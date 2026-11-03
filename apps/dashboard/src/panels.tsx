@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FLAG_IDS } from "@ap/shared";
-import { LOCKABLE, checkServerUrl, chromeManagedPolicy, defaultRange, firefoxPolicy, parseBulkImport, pct, qs, toggleLock, usd, atLeast, type Api, type ListEntry, type Me, type Range } from "./api.ts";
+import { LOCKABLE, checkServerUrl, setField, chromeManagedPolicy, defaultRange, firefoxPolicy, parseBulkImport, pct, qs, toggleLock, usd, atLeast, type Api, type ListEntry, type Me, type Range } from "./api.ts";
 import { BarList, CsvButton, Panel, Stat, Status, TrendChart, delta, message, useLoad } from "./components.tsx";
 
 interface Counts { scanned: number; safe: number; suspicious: number; phishing: number; falsePositives: number; aiCalls: number; phishingRate: number }
@@ -233,7 +233,8 @@ export function PolicyTab({ api, me }: { api: Api; me: Me }) {
       <Status loading={pol.loading} error={pol.error} />
       {draft && (
         <>
-          <label className="block">Settings (JSON)
+          <PolicyForm json={draft.json} onChange={(json) => setDraft({ ...draft, json })} />
+          <label className="block">Advanced: settings as JSON
             <textarea rows={14} value={draft.json} onChange={(e) => setDraft({ ...draft, json: e.target.value })} spellCheck={false} />
           </label>
           <fieldset>
@@ -379,5 +380,63 @@ export function AccountTab({ api, me, onErased }: { api: Api; me: Me; onErased: 
         <button type="button" onClick={() => { if (window.confirm("Erase your account and everything stored about it? This cannot be undone.")) void api.del("/v1/me").then(onErased, (e) => setErr(message(e))); }}>Erase my account</button>
       </Panel>
     </>
+  );
+}
+
+/** The common policy settings as a form. It edits the same JSON the advanced editor shows, so the two always agree. */
+function PolicyForm({ json, onChange }: { json: string; onChange: (json: string) => void }) {
+  let values: Record<string, unknown> | null = null;
+  try { const v: unknown = JSON.parse(json); if (v && typeof v === "object" && !Array.isArray(v)) values = v as Record<string, unknown>; } catch { /* shown below */ }
+  if (!values) return <p className="error">The advanced JSON below is not valid, so the form is paused. Fix it to continue.</p>;
+  const cur = values;
+  const get = (...p: string[]): unknown => p.reduce<unknown>((o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined), cur);
+  const set = (p: string[], v: unknown) => onChange(JSON.stringify(setField(cur, p, v), null, 2));
+  const tri = (p: string[], label: string) => (
+    <label>{label}{" "}
+      <select value={get(...p) === undefined ? "" : String(get(...p))} onChange={(e) => set(p, e.target.value === "" ? undefined : e.target.value === "true")}>
+        <option value="">not set (users decide)</option><option value="true">on</option><option value="false">off</option>
+      </select>
+    </label>
+  );
+  const num = (p: string[], label: string) => (
+    <label>{label}{" "}
+      <input type="number" min={0} step="any" value={typeof get(...p) === "number" ? (get(...p) as number) : ""} onChange={(e) => set(p, e.target.value === "" ? undefined : Number(e.target.value))} />
+    </label>
+  );
+  const thr = (get("thresholds") as { suspicious?: number; phishing?: number } | undefined) ?? {};
+  const setThr = (k: "suspicious" | "phishing", v: number) => set(["thresholds"], { suspicious: thr.suspicious ?? 30, phishing: thr.phishing ?? 60, [k]: v });
+  const domains = Array.isArray(get("protectedDomains")) ? (get("protectedDomains") as string[]).join("\n") : "";
+  return (
+    <div className="policy-form">
+      <div className="filters">
+        {tri(["enabled"], "Protection")}
+        {tri(["shadowMode"], "Shadow mode (score but never move mail)")}
+        <label>Sensitivity{" "}
+          <select value={String(get("sensitivity") ?? "")} onChange={(e) => set(["sensitivity"], e.target.value === "" ? undefined : e.target.value)}>
+            <option value="">not set</option><option>relaxed</option><option>balanced</option><option>strict</option><option>custom</option>
+          </select>
+        </label>
+        {get("sensitivity") === "custom" && (
+          <>
+            <label>Suspicious from <input type="number" min={0} max={100} value={thr.suspicious ?? 30} onChange={(e) => setThr("suspicious", Number(e.target.value))} /></label>
+            <label>Phishing from <input type="number" min={0} max={100} value={thr.phishing ?? 60} onChange={(e) => setThr("phishing", Number(e.target.value))} /></label>
+          </>
+        )}
+      </div>
+      <label className="block">Protected brand domains (one per line; mail pretending to be these is flagged)
+        <textarea rows={4} spellCheck={false} value={domains} onChange={(e) => { const l = e.target.value.split("\n").map((x) => x.trim().toLowerCase()).filter(Boolean); set(["protectedDomains"], l.length ? l : undefined); }} />
+      </label>
+      <h3>AI assistance</h3>
+      <div className="filters">
+        {tri(["ai", "enabled"], "AI second opinion")}
+        <label>Runs{" "}
+          <select value={String(get("ai", "mode") ?? "")} onChange={(e) => set(["ai", "mode"], e.target.value === "" ? undefined : e.target.value)}>
+            <option value="">not set</option><option value="uncertain_only">only on uncertain mail</option><option value="always">on every message</option>
+          </select>
+        </label>
+        {num(["ai", "monthlyBudgetUsd"], "Per-user monthly budget (USD)")}
+        {num(["ai", "orgMonthlyBudgetUsd"], "Whole-organization monthly budget (USD)")}
+      </div>
+    </div>
   );
 }

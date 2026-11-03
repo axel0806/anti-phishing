@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 import { makeApi, type Me } from "../src/api.ts";
-import { AccountTab, AuditTab, DeployTab, EmailLog, ListsTab, Overview, PeopleTab } from "../src/panels.tsx";
+import { AccountTab, AuditTab, DeployTab, EmailLog, ListsTab, Overview, PeopleTab, PolicyTab } from "../src/panels.tsx";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -20,6 +20,7 @@ const routes: Record<string, unknown> = {
   "/v1/admin/scans": { rows: [{ messageId: "m1", userId: "u1", userEmail: "a@corp.test", sender: "x@evil.test", score: 90, verdict: "phishing", pinned: false, createdAt: "2026-01-01T00:00:00Z", flags: ["dmarc_fail"] }], total: 1 },
   "/v1/lists": { allow: [], block: [{ matchType: "domain", value: "evil.test" }] },
   "/v1/admin/org-users": { users: [{ id: "u", email: "me@corp.test", role: "admin", provider: "gmail", linked: true }, { id: "w", email: "new@corp.test", role: "user", provider: "outlook", linked: false }] },
+  "/v1/orgs/o/policy": { values: { shadowMode: true, sensitivity: "custom", thresholds: { suspicious: 35, phishing: 65 }, protectedDomains: ["acme.example"], ai: { monthlyBudgetUsd: 4 } }, locked: ["ai.mode"] },
   "/v1/admin/audit": { rows: [{ createdAt: "2026-01-01T00:00:00Z", actorEmail: null, action: "policy.update", target: null }] },
 };
 const seen: string[] = [];
@@ -84,5 +85,18 @@ describe("people and account tabs", () => {
     const host = await render(<AccountTab api={api} me={me("viewer")} onErased={() => {}} />);
     expect(host.textContent).toContain("Create token");
     expect(host.textContent).toContain("Erase my account");
+  });
+});
+
+describe("policy tab", () => {
+  it("shows the current policy as a form and as JSON, with locks", async () => {
+    const host = await render(<PolicyTab api={api} me={me("admin")} />);
+    const selects = [...host.querySelectorAll("select")] as HTMLSelectElement[];
+    expect(selects.some((s) => s.value === "true")).toBe(true); // shadow mode on
+    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("acme.example");
+    expect([...host.querySelectorAll("input[type=number]")].map((i) => (i as HTMLInputElement).value)).toEqual(expect.arrayContaining(["35", "65", "4"]));
+    expect(host.textContent).toContain("Advanced: settings as JSON");
+    const locked = [...host.querySelectorAll("input[type=checkbox]")].filter((c) => (c as HTMLInputElement).checked);
+    expect(locked.length).toBe(1);
   });
 });

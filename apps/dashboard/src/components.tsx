@@ -36,9 +36,11 @@ export function Status({ loading, error }: { loading: boolean; error: string | n
 
 export function CsvButton({ api, path, name }: { api: Api; path: string; name: string }) {
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   return (
     <>
-      <button type="button" className="ghost" onClick={() => api.csv(path + (path.includes("?") ? "&" : "?") + "format=csv").then((t) => download(name + ".csv", t), (e) => setErr(message(e)))}>CSV</button>
+      <button type="button" className="ghost" onClick={() => api.csv(path + (path.includes("?") ? "&" : "?") + "format=csv").then((r) => { setNote(r.note ?? null); setErr(null); download(name + ".csv", r.text); }, (e) => setErr(message(e)))}>CSV</button>
+      {note && <span className="muted" role="status">{note}</span>}
       {err && <span className="error">{err}</span>}
     </>
   );

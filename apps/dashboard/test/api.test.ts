@@ -97,3 +97,29 @@ describe("toggleLock", () => {
     expect(toggleLock(a, "ai.monthlyBudgetUsd", false)).toEqual([]);
   });
 });
+
+describe("csv download reports a truncated export", () => {
+  it("returns the text plus a note when the server says it cut the export short", async () => {
+    const api = makeApi("t", async () => new Response("a,b\n1,2\n", { status: 200, headers: { "x-export-truncated": "50000 of 80000" } }));
+    expect(await api.csv("/v1/admin/scans?format=csv")).toEqual({ text: "a,b\n1,2\n", note: "Only 50000 of 80000 rows were exported. Narrow the date range or add filters." });
+    const whole = makeApi("t", async () => new Response("a\n", { status: 200 }));
+    expect(await whole.csv("/x")).toEqual({ text: "a\n", note: undefined });
+  });
+});
+
+describe("setField (policy form helper)", () => {
+  it("sets nested values without mutating the input, and removes a field when cleared", async () => {
+    const { setField } = await import("../src/api.ts");
+    const a = { shadowMode: true };
+    const b = setField(a, ["ai", "monthlyBudgetUsd"], 5);
+    expect(b).toEqual({ shadowMode: true, ai: { monthlyBudgetUsd: 5 } });
+    expect(a).toEqual({ shadowMode: true });
+    expect(setField(b, ["ai", "monthlyBudgetUsd"], undefined)).toEqual({ shadowMode: true }); // empty parents are pruned
+    expect(setField(b, ["shadowMode"], undefined)).toEqual({ ai: { monthlyBudgetUsd: 5 } });
+  });
+  it("refuses keys that could reach Object.prototype", async () => {
+    const { setField } = await import("../src/api.ts");
+    expect(() => setField({}, ["__proto__", "x"], 1)).toThrow();
+    expect(({} as Record<string, unknown>).x).toBeUndefined();
+  });
+});

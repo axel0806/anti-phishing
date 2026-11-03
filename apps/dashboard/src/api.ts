@@ -64,10 +64,11 @@ export function makeApi(token: string, fetchFn: Fetch = (i, init) => fetch(i, in
     patch: <T>(path: string, body: unknown) => call<T>("PATCH", path, body),
     del: <T>(path: string, body?: unknown) => call<T>("DELETE", path, body),
     /** Downloads a CSV through the authenticated API (a plain link could not send the bearer token). */
-    csv: async (path: string): Promise<string> => {
+    csv: async (path: string): Promise<{ text: string; note?: string }> => {
       const res = await fetchFn(base + path, { headers: { authorization: `Bearer ${token}` } });
       if (!res.ok) throw new ApiError(res.status, "error", `Export failed (${res.status})`);
-      return res.text();
+      const cut = res.headers.get("x-export-truncated");
+      return { text: await res.text(), note: cut ? `Only ${cut} rows were exported. Narrow the date range or add filters.` : undefined };
     },
   };
 }
@@ -149,4 +150,19 @@ export function download(name: string, text: string, type = "text/csv"): void {
   const a = document.createElement("a");
   a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
+}
+
+const UNSAFE = new Set(["__proto__", "constructor", "prototype"]);
+/** Returns a copy of `obj` with the value at `path` set, or removed when `value` is undefined (empty parents are pruned). */
+export function setField(obj: Record<string, unknown>, path: string[], value: unknown): Record<string, unknown> {
+  if (path.some((k) => UNSAFE.has(k))) throw new Error("Unsafe key");
+  const [head, ...rest] = path;
+  const out: Record<string, unknown> = { ...obj };
+  if (!rest.length) {
+    if (value === undefined) delete out[head!]; else out[head!] = value;
+    return out;
+  }
+  const child = setField((out[head!] as Record<string, unknown> | undefined) ?? {}, rest, value);
+  if (Object.keys(child).length) out[head!] = child; else delete out[head!];
+  return out;
 }
