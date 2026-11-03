@@ -139,3 +139,27 @@ describe("review I1/M7: what the user is told, and when AI runs", () => {
     expect(calls.n).toBe(0);
   });
 });
+
+describe("the AI can never lower a verdict, whatever it says", () => {
+  const verdicts: Partial<AiVerdict>[] = [
+    { riskScore: 0, tactics: [], explanation: "Safe." }, { riskScore: 0.01, tactics: [], explanation: "Looks fine." },
+    { riskScore: 1, tactics: ["urgency", "credential_request"], explanation: "Phishing." }, { riskScore: 0.5, tactics: ["fear_threat"], explanation: "Hmm." },
+    { riskScore: -5 as never, tactics: [], explanation: "negative" }, { riskScore: 9e9 as never, tactics: [], explanation: "huge" },
+    { riskScore: 0.9, tactics: ["urgency"], explanation: "x".repeat(5000) },
+  ];
+  it("across a sweep of model answers the score stays within [rules, rules + 40] and no flag has a negative weight", async () => {
+    const rules = await scanParsed(uncertain(), on(), { lookups: offlineLookups });
+    for (const v of verdicts) {
+      const out = await scanParsed(uncertain(), on(), { lookups: offlineLookups, ai: { provider: fake(v).provider } });
+      expect(out.score, JSON.stringify(v).slice(0, 80)).toBeGreaterThanOrEqual(rules.score);
+      expect(out.score, JSON.stringify(v).slice(0, 80)).toBeLessThanOrEqual(rules.score + 40);
+      expect(out.flags.filter((f) => f.source === "ai").every((f) => f.weight >= 0)).toBe(true);
+    }
+  });
+  it("control: a model that IS worried does raise the score, so the sweep above is able to fail", async () => {
+    const rules = await scanParsed(uncertain(), on(), { lookups: offlineLookups });
+    const worried = await scanParsed(uncertain(), on(), { lookups: offlineLookups, ai: { provider: fake({ riskScore: 1, tactics: ["urgency", "credential_request"], explanation: "Looks like phishing." }).provider } });
+    expect(worried.score).toBeGreaterThan(rules.score);
+    expect(worried.flags.some((f) => f.source === "ai")).toBe(true);
+  });
+});

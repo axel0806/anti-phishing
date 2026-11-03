@@ -95,7 +95,8 @@ const displayName: Detector = (e, ctx) => {
   for (const raw of ctx.settings.protectedDomains) {
     const p = raw.toLowerCase();
     const label = p.split(".")[0]!;
-    const words = name.split(" ").map((w) => w.replace(/[^a-z0-9]/g, ""));
+    // Split on any run of non-letters/digits ("PayPal-Support", "Support | PayPal", "[Apple] ID"), so punctuation cannot hide a brand name.
+    const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
     if (words.includes(label) && reg !== p && !isBrandCountryDomain(reg, p)) {
       return compact([fl(ctx, "display_name_impersonation", `Name "${e.from.name}" claims ${label} but sent from ${reg}`)]);
     }

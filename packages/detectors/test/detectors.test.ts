@@ -162,3 +162,17 @@ describe("more protected brands, and a limit on link lookups", () => {
     expect(new Set(seen).size).toBe(10);
   });
 });
+
+describe("display-name impersonation survives punctuation tricks", () => {
+  const from = (name: string) => ({ name, address: "billing@random-shop.example" });
+  it("catches the brand when joined to other words by punctuation", async () => {
+    for (const name of ["PayPal-Support", "PayPal.Security", "Support | PayPal", "Amazon: Order Update", "[Apple] ID Team", "PayPal®"]) {
+      expect(await ids(base({ from: from(name) })), name).toContain("display_name_impersonation");
+    }
+  });
+  it("still ignores a brand that is merely part of a longer word", async () => {
+    for (const name of ["Applebee's Rewards", "Googleplex Cafe", "Amazonia Travel"]) {
+      expect(await ids(base({ from: from(name) })), name).not.toContain("display_name_impersonation");
+    }
+  });
+});
