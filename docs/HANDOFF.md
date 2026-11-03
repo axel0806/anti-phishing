@@ -33,7 +33,7 @@ Done and tested on `phase-4-orgs`:
 
 **NOT done (resume here):**
 1. An independent review of the Phase 4 branch (see "Process"), then fixes.
-2. A run-and-diagnose guide for the user.
+2. (Done: docs/RUNNING.md.)
 3. Dashboard is only tested with a fake API and happy-dom, never in a real browser against a real server. The generator defaults the Firefox extension id to the dev id `anti-phishing-dev@local`; change it for a signed release. The dashboard has no policy form, only a JSON editor plus lock checkboxes.
 
 ## Repo layout
